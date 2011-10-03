@@ -1,0 +1,11 @@
+LIBRARY XpNamedPipeJni
+EXPORTS 
+  Java_xpnp_XpNamedPipe_getErrorMessage @1
+  Java_xpnp_XpNamedPipe_makePipeName @2
+  Java_xpnp_XpNamedPipe_createPipe @3
+  Java_xpnp_XpNamedPipe_closePipe @4
+  Java_xpnp_XpNamedPipe_acceptConnection @5
+  Java_xpnp_XpNamedPipe_readPipe @6
+  Java_xpnp_XpNamedPipe_openPipe @7
+  Java_xpnp_XpNamedPipe_writePipe @8
+
