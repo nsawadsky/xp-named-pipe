@@ -59,16 +59,19 @@ static bool setErrorMessage(const wchar_t* errorMessage) {
 
 static std::wstring getWindowsErrorMessage(wchar_t* funcName) {
     DWORD error = GetLastError();
-    wchar_t buffer[BUF_LEN] = L"";
-    FormatMessage(
-        FORMAT_MESSAGE_FROM_SYSTEM |
-        FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL,
-        error,
-        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-        buffer, BUF_LEN, NULL);
     wchar_t msg[BUF_LEN] = L"";
-    swprintf_s(msg, L"%s failed with %lu: %s", funcName, error, buffer);
+    wchar_t buffer[BUF_LEN] = L"";
+    if (FormatMessage(
+            FORMAT_MESSAGE_FROM_SYSTEM |
+            FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL,
+            error,
+            0,
+            buffer, BUF_LEN, NULL) == 0) {
+        swprintf_s(msg, L"Failed to retrieve Windows error message");       
+    } else {
+        swprintf_s(msg, L"%s failed with %lu: %s", funcName, error, buffer);
+    }
     return std::wstring(msg);
 }
 
