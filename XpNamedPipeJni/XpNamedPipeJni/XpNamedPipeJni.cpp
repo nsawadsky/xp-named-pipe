@@ -151,8 +151,7 @@ static HANDLE createPipe(const std::wstring& pipeName, bool privatePipe) throw (
             }
         }
         pipeHandle = CreateNamedPipe(pipeName.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-                PIPE_UNLIMITED_INSTANCES, PIPE_BUF_SIZE, PIPE_BUF_SIZE, 0, pSA);
+                PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, PIPE_BUF_SIZE, PIPE_BUF_SIZE, 0, pSA);
         if (pipeHandle == INVALID_HANDLE_VALUE) {
             throw getWindowsErrorMessage(L"CreateNamedPipe");
         }
@@ -171,6 +170,21 @@ static HANDLE createPipe(const std::wstring& pipeName, bool privatePipe) throw (
         throw errorMsg;
     }
     return pipeHandle;
+}
+
+static void readBytes(HANDLE pipeHandle, char* readBuf, int bytesToRead, OVERLAPPED* overlapped) throw (std::wstring) {
+    int totalBytesRead = 0;
+    while (totalBytesRead < bytesToRead) {
+        DWORD bytesRead = 0;
+        BOOL readResult = ReadFile(pipeHandle, readBuf + totalBytesRead, bytesToRead - totalBytesRead, &bytesRead, overlapped);
+        if (!readResult && GetLastError() == ERROR_IO_PENDING) {
+            readResult = GetOverlappedResult(pipeHandle, overlapped, &bytesRead, TRUE);
+        }
+        if (!readResult) {
+            throw getWindowsErrorMessage(L"ReadFile");
+        }
+        totalBytesRead += bytesRead;
+    }
 }
 
 // Exported function definitions
@@ -307,58 +321,35 @@ jlong JNICALL Java_xpnp_XpNamedPipe_acceptConnection(JNIEnv* pEnv, jclass cls, j
 
 jobject JNICALL Java_xpnp_XpNamedPipe_readPipe(JNIEnv* pEnv, jclass cls, jlong pipe) {
     PipeInfo* pipeInfo = (PipeInfo*)pipe;
-    std::vector<unsigned char> returnBuf;
 
     OVERLAPPED overlapped;
     memset(&overlapped, 0, sizeof(overlapped));
 
     jbyteArray resultArray = NULL;
-    unsigned char* readBuffer = NULL;
-    int readBufSize = PIPE_BUF_SIZE;
+    char* readBuffer = NULL;
     try {
         overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
         if (overlapped.hEvent == NULL) {
             throw getWindowsErrorMessage(L"CreateEvent");
         }
 
-        BOOL result = FALSE;
-        while (!result) {
-            if (readBuffer != NULL) {
-                delete [] readBuffer;
-            }
-            readBuffer = new unsigned char[readBufSize];
-            if (readBuffer == NULL) {
-                throw std::wstring(L"Out of memory");
-            }
+        int msgLength = 0;
+        readBytes(pipeInfo->pipeHandle, (char*)&msgLength, sizeof(msgLength), &overlapped);
 
-            DWORD bytesRead = 0;
-            result = ReadFile(pipeInfo->pipeHandle, readBuffer, readBufSize, &bytesRead, &overlapped);
+        msgLength = ntohl(msgLength);
 
-            if (!result && GetLastError() == ERROR_IO_PENDING) {
-                result = GetOverlappedResult(pipeInfo->pipeHandle, &overlapped, &bytesRead, TRUE);
-            }
-
-            if (result || (!result && GetLastError() == ERROR_MORE_DATA)) {
-                returnBuf.insert(returnBuf.end(), readBuffer, readBuffer + bytesRead);
-            } 
-
-            if (!result) {
-                if (GetLastError() == ERROR_MORE_DATA) {
-                    DWORD bytesRemaining = 0;
-                    if (!PeekNamedPipe(pipeInfo->pipeHandle, NULL, 0, NULL, NULL, &bytesRemaining)) {
-                        throw getWindowsErrorMessage(L"PeekNamedPipe");
-                    }
-                    readBufSize = bytesRemaining;
-                } else {
-                    throw getWindowsErrorMessage(L"ReadFile");
-                }
-            }
+        readBuffer = new char[msgLength];
+        if (readBuffer == NULL) {
+            throw std::wstring(L"Out of memory");
         }
-        resultArray = pEnv->NewByteArray((jsize)returnBuf.size());
+
+        readBytes(pipeInfo->pipeHandle, readBuffer, msgLength, &overlapped);
+
+        resultArray = pEnv->NewByteArray((jsize)msgLength);
         if (resultArray == NULL) {
             throw std::wstring(L"JNI out of memory");
         }
-        pEnv->SetByteArrayRegion(resultArray, 0, (jsize)returnBuf.size(), (jbyte*)returnBuf.data());
+        pEnv->SetByteArrayRegion(resultArray, 0, (jsize)msgLength, (jbyte*)readBuffer);
     } catch (std::wstring& errorMsg) { 
         setErrorMessage(errorMsg.c_str());
     }
@@ -397,10 +388,6 @@ jlong JNICALL Java_xpnp_XpNamedPipe_openPipe(JNIEnv* pEnv, jclass cls, jstring p
             throw getWindowsErrorMessage(L"CreateFile");
         }
 
-        DWORD mode = PIPE_READMODE_MESSAGE;
-        if (! SetNamedPipeHandleState(pipeHandle, &mode, NULL, NULL)) {
-            throw getWindowsErrorMessage(L"SetNamedPipeHandleState");
-        }
         pipeInfo = new PipeInfo(std::wstring((wchar_t*)pipeName), true, pipeHandle);
         if (pipeInfo == NULL) {
             throw std::wstring(L"Out of memory");
@@ -433,8 +420,20 @@ jboolean JNICALL Java_xpnp_XpNamedPipe_writePipe(JNIEnv* pEnv, jclass cls, jlong
         if (overlapped.hEvent == NULL) {
             throw getWindowsErrorMessage(L"CreateEvent");
         }
+
         DWORD bytesWritten = 0;
-        BOOL writeResult = WriteFile(pipeInfo->pipeHandle, pipeMsg, bytesToWrite, &bytesWritten, &overlapped);
+        int msgLength = htonl(bytesToWrite);
+
+        BOOL writeResult = WriteFile(pipeInfo->pipeHandle, &msgLength, sizeof(msgLength), &bytesWritten, &overlapped);
+        if (!writeResult && GetLastError() == ERROR_IO_PENDING) {
+            writeResult = GetOverlappedResult(pipeInfo->pipeHandle, &overlapped, &bytesWritten, TRUE);
+        }
+
+        if (!writeResult) {
+            throw getWindowsErrorMessage(L"WriteFile");
+        }
+
+        writeResult = WriteFile(pipeInfo->pipeHandle, pipeMsg, bytesToWrite, &bytesWritten, &overlapped);
         if (!writeResult && GetLastError() == ERROR_IO_PENDING) {
             writeResult = GetOverlappedResult(pipeInfo->pipeHandle, &overlapped, &bytesWritten, TRUE);
         }
