@@ -1,0 +1,22 @@
+#pragma once
+
+#include <string>
+#include <vector>
+
+typedef void* XPNP_PipeHandle;
+
+std::string XPNP_getErrorMessage();
+
+bool XPNP_makePipeName(const std::string& baseName, bool userLocal, std::string& fullPipeName);
+ 
+XPNP_PipeHandle XPNP_createPipe(const std::string& pipeName, bool privatePipe);
+
+bool XPNP_closePipe(XPNP_PipeHandle pipeHandle);
+
+XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipeHandle);
+
+bool XPNP_readPipe(XPNP_PipeHandle pipeHandle, std::vector<char> buffer);
+
+XPNP_PipeHandle XPNP_openPipe(const std::string& pipeName, bool privatePipe);
+
+bool XPNP_writePipe(XPNP_PipeHandle pipeHandle, char* pipeMsg, int bytesToWrite);
