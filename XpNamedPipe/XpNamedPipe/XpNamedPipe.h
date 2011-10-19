@@ -13,7 +13,7 @@ XPNP_PipeHandle XPNP_createPipe(const std::string& pipeName, bool privatePipe);
 
 bool XPNP_stopPipe(XPNP_PipeHandle pipeHandle);
 
-bool XPNP_deletePipe(XPNP_PipeHandle pipeHandle);
+bool XPNP_closePipe(XPNP_PipeHandle pipeHandle);
 
 XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipeHandle);
 

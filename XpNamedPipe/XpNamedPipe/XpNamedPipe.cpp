@@ -74,7 +74,7 @@ static std::wstring getWindowsErrorMessage(wchar_t* funcName) {
     return std::wstring(msg);
 }
 
-char* toUtf8(const wchar_t* utf16) throw (std::wstring) {
+static char* toUtf8(const wchar_t* utf16) throw (std::wstring) {
     char* result = NULL;
     std::wstring errorMsg;
     bool error = false;
@@ -105,14 +105,14 @@ char* toUtf8(const wchar_t* utf16) throw (std::wstring) {
     return result;
 }
 
-std::string toUtf8String(const std::wstring& utf16) throw (std::wstring) {
+static std::string toUtf8String(const std::wstring& utf16) throw (std::wstring) {
     char* utf8 = toUtf8(utf16.c_str());
     std::string result = utf8;
     delete [] utf8;
     return result;
 }
 
-wchar_t* toUtf16(const char* utf8) throw (std::wstring) {
+static wchar_t* toUtf16(const char* utf8) throw (std::wstring) {
     wchar_t* result = NULL;
     std::wstring errorMsg;
     bool error = false;
@@ -143,7 +143,7 @@ wchar_t* toUtf16(const char* utf8) throw (std::wstring) {
     return result;
 }
 
-std::wstring toUtf16String(const std::string& utf8) throw (std::wstring) {
+static std::wstring toUtf16String(const std::string& utf8) throw (std::wstring) {
     wchar_t* resultBuf = toUtf16(utf8.c_str());
     std::wstring result = resultBuf;
     delete [] resultBuf;
@@ -451,7 +451,7 @@ bool XPNP_stopPipe(XPNP_PipeHandle pipe) {
     return true;
 }
 
-bool XPNP_deletePipe(XPNP_PipeHandle pipe) {
+bool XPNP_closePipe(XPNP_PipeHandle pipe) {
     PipeInfo* pipeInfo = (PipeInfo*)pipe;
     if (!pipeInfo->isStopped) {
         CloseHandle(pipeInfo->pipeHandle);
