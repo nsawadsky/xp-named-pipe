@@ -11,12 +11,14 @@ bool XPNP_makePipeName(const std::string& baseName, bool userLocal, std::string&
  
 XPNP_PipeHandle XPNP_createPipe(const std::string& pipeName, bool privatePipe);
 
-bool XPNP_closePipe(XPNP_PipeHandle pipeHandle);
+bool XPNP_stopPipe(XPNP_PipeHandle pipeHandle);
+
+bool XPNP_deletePipe(XPNP_PipeHandle pipeHandle);
 
 XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipeHandle);
 
-bool XPNP_readPipe(XPNP_PipeHandle pipeHandle, std::vector<char> buffer);
+bool XPNP_readMessage(XPNP_PipeHandle pipeHandle, std::vector<char>& buffer);
 
 XPNP_PipeHandle XPNP_openPipe(const std::string& pipeName, bool privatePipe);
 
-bool XPNP_writePipe(XPNP_PipeHandle pipeHandle, char* pipeMsg, int bytesToWrite);
+bool XPNP_writeMessage(XPNP_PipeHandle pipeHandle, char* pipeMsg, int bytesToWrite);
