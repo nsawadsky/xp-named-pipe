@@ -23,7 +23,7 @@ public:
     std::wstring pipeName;
     bool privatePipe;
     HANDLE pipeHandle;
-    volatile bool isStopped;
+    bool isStopped;
 };
 
 // Local function definitions
@@ -466,6 +466,7 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe) {
     PipeInfo* newPipeInfo = NULL;    
     OVERLAPPED overlapped;
     memset(&overlapped, 0, sizeof(overlapped));
+    bool pipeConnected = false;
 
     try {
         overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -481,6 +482,7 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe) {
         if (!result && GetLastError() != ERROR_PIPE_CONNECTED) {
             throw getWindowsErrorMessage(L"ConnectNamedPipe");
         }
+        pipeConnected = true;
 
         std::vector<char> readBuf;
         readMessage(pipeInfo->pipeHandle, readBuf);
@@ -512,6 +514,9 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe) {
     }
     if (overlapped.hEvent != NULL) {
         CloseHandle(overlapped.hEvent);
+    }
+    if (pipeConnected) {
+        DisconnectNamedPipe(pipeInfo->pipeHandle);
     }
     return (XPNP_PipeHandle)newPipeInfo;
 }
@@ -568,10 +573,19 @@ XPNP_PipeHandle XPNP_openPipe(const std::string& pipeNameUtf8, bool privatePipe)
         DWORD unused = 0;
         BOOL connectResult = ConnectNamedPipe(newPipeHandle, &overlapped);
         if (!connectResult && GetLastError() == ERROR_IO_PENDING) {
-            if (WaitForSingleObject(overlapped.hEvent, 1000) != WAIT_OBJECT_0) {
-                throw getWindowsErrorMessage(L"WaitForSingleObject");
+            DWORD waitResult = WaitForSingleObject(overlapped.hEvent, 2000);
+            if (waitResult == WAIT_FAILED || waitResult == WAIT_TIMEOUT) {
+                CancelIo(newPipeHandle);
+                GetOverlappedResult(newPipeHandle, &overlapped, &unused, TRUE);
+                if (waitResult == WAIT_FAILED) {
+                    throw getWindowsErrorMessage(L"WaitForSingleObject");
+                }
+                if (waitResult == WAIT_TIMEOUT) {
+                    throw std::wstring(L"Timeout waiting for server to connect back");
+                }
+            } else {
+                connectResult = GetOverlappedResult(newPipeHandle, &overlapped, &unused, TRUE);
             }
-            connectResult = GetOverlappedResult(newPipeHandle, &overlapped, &unused, FALSE);
         }
         if (!connectResult && GetLastError() != ERROR_PIPE_CONNECTED) {
             throw getWindowsErrorMessage(L"ConnectNamedPipe");
