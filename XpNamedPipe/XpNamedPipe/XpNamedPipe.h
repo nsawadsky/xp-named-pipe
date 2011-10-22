@@ -19,9 +19,9 @@ int XPNP_stopPipe(XPNP_PipeHandle pipeHandle);
 
 int XPNP_deletePipe(XPNP_PipeHandle pipeHandle);
 
-XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipeHandle);
+XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipeHandle, int timeoutMsecs);
 
-int XPNP_readMessage(XPNP_PipeHandle pipeHandle, char* buffer, int bufLen, int* bytesRemaining);
+int XPNP_readMessage(XPNP_PipeHandle pipeHandle, char* buffer, int bufLen, int* bytesRemaining, int timeoutMsecs);
 
 XPNP_PipeHandle XPNP_openPipe(const char* pipeName, int privatePipe);
 
