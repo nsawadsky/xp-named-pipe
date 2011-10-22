@@ -14,7 +14,7 @@ public:
     PipeInfo(const std::string& pipeName, bool privatePipe, HANDLE pipeHandle) : 
             pipeName(pipeName), privatePipe(privatePipe), pipeHandle(pipeHandle) {
 
-        stoppedEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+        stoppedEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
         stoppedEvent.check("CreateEvent");
     }
 
