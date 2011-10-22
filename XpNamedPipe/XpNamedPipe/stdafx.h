@@ -15,5 +15,10 @@
 #include <sddl.h>
 #include <Rpc.h>
 
+#include <stdexcept>
+#include <boost/scoped_ptr.hpp>
+#include <boost/scoped_array.hpp>
+#include <boost/thread/tss.hpp>
+
 // Avoid warnings for use of throw as exception specification.
 #pragma warning( disable : 4290 )
