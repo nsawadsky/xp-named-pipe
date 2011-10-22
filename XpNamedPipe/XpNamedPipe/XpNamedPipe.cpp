@@ -183,7 +183,7 @@ static void writeMessage(HANDLE pipeHandle, const char* pipeMsg, int bytesToWrit
     checkWindowsResult(writeResult, "WriteFile");
 }
 
-static void readMessage(HANDLE pipeHandle, char* buffer, int bufLen, int* bytesRead, int* bytesRemaining) {
+static void readMessage(PipeInfo* pipeInfo, char* buffer, int bufLen, int* bytesRead, int* bytesRemaining, int timeoutMsecs) {
     *bytesRead = 0;
     *bytesRemaining = 0;
 
@@ -193,15 +193,34 @@ static void readMessage(HANDLE pipeHandle, char* buffer, int bufLen, int* bytesR
     ScopedHandle evt = overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     evt.check("CreateEvent");
 
-    BOOL result = ReadFile(pipeHandle, buffer, bufLen, NULL, &overlapped);
+    BOOL result = ReadFile(pipeInfo->getPipeHandle(), buffer, bufLen, NULL, &overlapped);
     DWORD errorCode = GetLastError();
     if (!result && errorCode != ERROR_IO_PENDING && errorCode != ERROR_MORE_DATA) {
         throwWindowsError("ReadPipe");
     }
-    result = GetOverlappedResult(pipeHandle, &overlapped, (LPDWORD)bytesRead, TRUE);
+    if (!result && errorCode == ERROR_IO_PENDING) {
+        HANDLE handles[2] = {pipeInfo->getStoppedEvent(), evt};
+        DWORD waitResult = WaitForMultipleObjects(2, handles, FALSE, timeoutMsecs);
+        if (waitResult == WAIT_FAILED || waitResult == WAIT_TIMEOUT || waitResult == WAIT_OBJECT_0) {
+            std::string errorMsg = getWindowsErrorMessage("WaitForMultipleObjects");
+            CancelIo(pipeInfo->getPipeHandle());
+
+            DWORD unused = 0;
+            GetOverlappedResult(pipeInfo->getPipeHandle(), &overlapped, &unused, TRUE);
+
+            if (waitResult == WAIT_FAILED) {
+                throw std::runtime_error(errorMsg);
+            } else if (waitResult == WAIT_OBJECT_0) {
+                throw std::runtime_error("Interrupted while reading message");
+            } else {
+                throw std::runtime_error("Timed out while reading message");
+            }
+        }
+    }
+    result = GetOverlappedResult(pipeInfo->getPipeHandle(), &overlapped, (LPDWORD)bytesRead, TRUE);
     if (!result) {
         if (GetLastError() == ERROR_MORE_DATA) {
-            result = PeekNamedPipe(pipeHandle, NULL, 0, NULL, NULL, (LPDWORD)bytesRemaining);
+            result = PeekNamedPipe(pipeInfo->getPipeHandle(), NULL, 0, NULL, NULL, (LPDWORD)bytesRemaining);
             checkWindowsResult(result, "PeekNamedPipe");
         } else {
             throwWindowsError("GetOverlappedResult");
@@ -209,18 +228,18 @@ static void readMessage(HANDLE pipeHandle, char* buffer, int bufLen, int* bytesR
     }
 }
 
-static void readEntireMessage(HANDLE pipeHandle, std::vector<char>& msg){
+static void readEntireMessage(PipeInfo* pipeInfo, std::vector<char>& msg, int timeoutMsecs){
     int bufLen = PIPE_BUF_SIZE;
     boost::scoped_array<char> buffer(new char[bufLen]);
 
     int bytesRead = 0;
     int bytesRemaining = 0;
 
-    readMessage(pipeHandle, buffer.get(), bufLen, &bytesRead, &bytesRemaining);
+    readMessage(pipeInfo, buffer.get(), bufLen, &bytesRead, &bytesRemaining, timeoutMsecs);
     msg.insert(msg.end(), buffer.get(), buffer.get() + bytesRead);
     if (bytesRemaining > 0) {
         buffer.reset(new char[bytesRemaining]);
-        readMessage(pipeHandle, buffer.get(), bytesRemaining, &bytesRead, &bytesRemaining);
+        readMessage(pipeInfo, buffer.get(), bytesRemaining, &bytesRead, &bytesRemaining, timeoutMsecs);
         msg.insert(msg.end(), buffer.get(), buffer.get() + bytesRead);
     }
 }
@@ -282,10 +301,11 @@ int XPNP_deletePipe(XPNP_PipeHandle pipe) {
     return 1;
 }
 
-XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe) {
+XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe, int timeoutMsecs) {
     PipeInfo* pipeInfo = (PipeInfo*)pipe;
     HANDLE newPipeHandle = INVALID_HANDLE_VALUE;
     PipeInfo* newPipeInfo = NULL;    
+    bool pipeConnected = false;
 
     try {
         OVERLAPPED overlapped;
@@ -294,17 +314,33 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe) {
         ScopedHandle evt = overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
         evt.check("CreateEvent");
         
-        DWORD unused = 0;
         BOOL result = ConnectNamedPipe(pipeInfo->getPipeHandle(), &overlapped);
+        
         if (!result && GetLastError() == ERROR_IO_PENDING) {
+            DWORD unused = 0;
+            HANDLE handles[2] = {pipeInfo->getStoppedEvent(), evt};
+            DWORD waitResult = WaitForMultipleObjects(2, handles, FALSE, timeoutMsecs);
+            if (waitResult == WAIT_FAILED || waitResult == WAIT_TIMEOUT || waitResult == WAIT_OBJECT_0) {
+                std::string errorMsg = getWindowsErrorMessage("WaitForMultipleObjects");
+                CancelIo(pipeInfo->getPipeHandle());
+                GetOverlappedResult(pipeInfo->getPipeHandle(), &overlapped, &unused, TRUE);
+                if (waitResult == WAIT_FAILED) {
+                    throw std::runtime_error(errorMsg);
+                } else if (waitResult == WAIT_OBJECT_0) {
+                    throw std::runtime_error("Interrupted while waiting for client to connect");
+                } else {
+                    throw std::runtime_error("Timed out waiting for client to connect");
+                }
+            }
             result = GetOverlappedResult(pipeInfo->getPipeHandle(), &overlapped, &unused, TRUE);
         }
         if (!result && GetLastError() != ERROR_PIPE_CONNECTED) {
             throwWindowsError("ConnectNamedPipe");
         }
+        pipeConnected = true;
 
         std::vector<char> readBuf;
-        readEntireMessage(pipeInfo->getPipeHandle(), readBuf);
+        readEntireMessage(pipeInfo, readBuf, timeoutMsecs);
 
         std::string newPipeName(readBuf.begin(), readBuf.end());
 
@@ -325,13 +361,16 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe) {
             CloseHandle(newPipeHandle);
         }
     }
+    if (pipeConnected) {
+        DisconnectNamedPipe(pipeInfo->getPipeHandle());
+    }
     return (XPNP_PipeHandle)newPipeInfo;
 }
 
-int XPNP_readMessage(XPNP_PipeHandle pipe, char* buffer, int bufLen, int* bytesRead, int* bytesRemaining) {
+int XPNP_readMessage(XPNP_PipeHandle pipe, char* buffer, int bufLen, int* bytesRead, int* bytesRemaining, int timeoutMsecs) {
     try {
         PipeInfo* pipeInfo = (PipeInfo*)pipe;
-        readMessage(pipeInfo->getPipeHandle(), buffer, bufLen, bytesRead, bytesRemaining);
+        readMessage(pipeInfo, buffer, bufLen, bytesRead, bytesRemaining, timeoutMsecs);
         return 1;
     } catch (std::exception& e) { 
         setErrorMessage(e.what());
@@ -374,14 +413,19 @@ XPNP_PipeHandle XPNP_openPipe(const char* pipeName, int privatePipe) {
         ScopedHandle evt = overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
         evt.check("CreateEvent");
 
-        DWORD unused = 0;
         BOOL connectResult = ConnectNamedPipe(newPipeHandle, &overlapped);
         if (!connectResult && GetLastError() == ERROR_IO_PENDING) {
+            DWORD unused = 0;
             DWORD waitResult = WaitForSingleObject(overlapped.hEvent, 2000);
-            if (waitResult == WAIT_TIMEOUT) {
-                throw std::runtime_error("Timed out waiting for server to connect");
-            } else if (waitResult == WAIT_FAILED) {
-                throwWindowsError("WaitForSingleObject");
+            if (waitResult == WAIT_FAILED || waitResult == WAIT_TIMEOUT) {
+                std::string errorMsg = getWindowsErrorMessage("WaitForSingleObject");
+                CancelIo(pipeInfo->getPipeHandle());
+                GetOverlappedResult(pipeInfo->getPipeHandle(), &overlapped, &unused, TRUE);
+                if (waitResult == WAIT_FAILED) {
+                    throw std::runtime_error(errorMsg);
+                } else {
+                    throw std::runtime_error("Timed out waiting for server to connect");
+                }
             }
             connectResult = GetOverlappedResult(newPipeHandle, &overlapped, &unused, TRUE);
         }
