@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "XpNamedPipe.h"
+#include "util.hpp"
 
 const int BUF_LEN = 1024;
 
@@ -579,7 +580,7 @@ XPNP_PipeHandle XPNP_openPipe(const char* pipeNameUtf8, bool privatePipe) {
         newPipeHandle = createPipe(newPipeName, privatePipe);
 
         std::string newPipeNameUtf8 = toUtf8String(newPipeName);
-        writeMessage(listeningPipeHandle, newPipeNameUtf8.c_str(), newPipeNameUtf8.length());
+        writeMessage(listeningPipeHandle, newPipeNameUtf8.c_str(), (int)newPipeNameUtf8.length());
 
         overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
         if (overlapped.hEvent == NULL) {
