@@ -11,14 +11,17 @@
 // Windows Header Files:
 #include <windows.h>
 
-#include <WinSock2.h>
 #include <sddl.h>
-#include <Rpc.h>
 
 #include <stdexcept>
+#include <string>
+#include <strstream>
 #include <boost/scoped_ptr.hpp>
 #include <boost/scoped_array.hpp>
 #include <boost/thread/tss.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 // Avoid warnings for use of throw as exception specification.
 #pragma warning( disable : 4290 )
