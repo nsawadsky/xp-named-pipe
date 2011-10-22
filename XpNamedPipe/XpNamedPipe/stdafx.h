@@ -13,6 +13,7 @@
 
 #include <sddl.h>
 
+#include <vector>
 #include <stdexcept>
 #include <string>
 #include <strstream>
