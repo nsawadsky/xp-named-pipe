@@ -1,8 +1,5 @@
 #pragma once
 
-#include <string>
-#include <vector>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
