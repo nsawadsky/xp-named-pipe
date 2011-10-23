@@ -28,9 +28,8 @@ public class XpNamedPipeClient implements Runnable {
                     try {
                         System.out.println("Reading thread started");
                         while (true) {
-                            byte[] buffer = new byte[1024];
-                            pipe.read(buffer);
-                            System.out.println("Reading thread got message: " + new String(buffer, "UTF-8"));
+                            byte[] msg = pipe.readMessage();
+                            System.out.println("Reading thread got message: " + new String(msg, "UTF-8"));
                         }
                     } catch (IOException e) {
                         System.out.println("Reading thread caught IOException: " + e);
@@ -42,7 +41,7 @@ public class XpNamedPipeClient implements Runnable {
             
             Thread.sleep(2000);
             
-            pipe.write("Hello, world!".getBytes("UTF-8"));
+            pipe.writeMessage("Hello, world!".getBytes("UTF-8"));
             System.out.println("Wrote message");
             
             Thread.sleep(1000);
