@@ -19,7 +19,7 @@ int XPNP_deletePipe(XPNP_PipeHandle pipeHandle);
 
 XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipeHandle, int timeoutMsecs);
 
-int XPNP_readPipe(XPNP_PipeHandle pipeHandle, char* buffer, int bufLen, int* bytesRead, int timeoutMsecs);
+int XPNP_readPipe(XPNP_PipeHandle pipeHandle, char* buffer, int bufLen, int timeoutMsecs);
 
 int XPNP_readBytes(XPNP_PipeHandle pipeHandle, char* buffer, int bytesToRead, int timeoutMsecs);
 

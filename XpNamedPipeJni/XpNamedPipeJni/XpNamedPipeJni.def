@@ -8,4 +8,5 @@ EXPORTS
   Java_xpnp_XpNamedPipe_readPipe @6
   Java_xpnp_XpNamedPipe_openPipe @7
   Java_xpnp_XpNamedPipe_writePipe @8
-
+  Java_xpnp_XpNamedPipe_readBytes @9
+  Java_xpnp_XpNamedPipe_stopPipe @10
