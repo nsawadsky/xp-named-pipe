@@ -11,6 +11,7 @@
 // Windows Header Files:
 #include <windows.h>
 
+#include <WinSock2.h>
 #include <sddl.h>
 
 #include <vector>
