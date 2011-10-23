@@ -101,7 +101,7 @@ static std::string getUserSid() {
 
 static std::string createUuid() {
     boost::uuids::uuid uuid = boost::uuids::random_generator()();
-    std::strstream stream;
+    std::stringstream stream;
     stream << uuid;
     return stream.str();
 }
@@ -156,7 +156,7 @@ static HANDLE createPipe(const std::string& pipeName, bool privatePipe) {
 }
 
 static std::string makePipeName(const std::string& baseName, bool userLocal) {
-    std::strstream pipeName;
+    std::stringstream pipeName;
     const char* PIPE_PREFIX = "\\\\.\\pipe\\";
 
     if (userLocal) {
@@ -228,20 +228,27 @@ static void readBytes(PipeInfo* pipeInfo, char* buffer, int bytesToRead, int tim
 }
 
 static void writeMessage(HANDLE pipeHandle, const char* msg, int msgLen) {
-    msgLen = htonl(msgLen);
-    writeBytes(pipeHandle, (const char*)&msgLen, sizeof(msgLen));
+    int msgLenNetwork = htonl(msgLen);
+    writeBytes(pipeHandle, (const char*)&msgLenNetwork, sizeof(msgLenNetwork));
     writeBytes(pipeHandle, msg, msgLen);
 }
 
 static void readMessage(PipeInfo* pipeInfo, std::vector<char>& msg, int timeoutMsecs){
     int msgLen = 0;
-    readBytes(pipeInfo, (char*)&msgLen, 4, timeoutMsecs);
+    readBytes(pipeInfo, (char*)&msgLen, sizeof(msgLen), timeoutMsecs);
     msgLen = ntohl(msgLen);
 
     if (msgLen > 0) {
         msg.resize(msgLen);
         readBytes(pipeInfo, &(msg[0]), msgLen, timeoutMsecs);
     }
+}
+
+static PipeInfo* getPipeInfo(XPNP_PipeHandle handle) {
+    if (handle == 0) {
+        throw std::invalid_argument("Pipe handle is null");
+    }
+    return (PipeInfo*)handle;
 }
 
 // Exported function definitions
@@ -286,7 +293,7 @@ XPNP_PipeHandle XPNP_createPipe(const char* pipeName, int privatePipe) {
 
 int XPNP_stopPipe(XPNP_PipeHandle pipe) {
     try {
-        PipeInfo* pipeInfo = (PipeInfo*)pipe;
+        PipeInfo* pipeInfo = getPipeInfo(pipe);
         pipeInfo->stop();
         return 1;
     } catch (std::exception& e) {
@@ -296,18 +303,25 @@ int XPNP_stopPipe(XPNP_PipeHandle pipe) {
 }
 
 int XPNP_deletePipe(XPNP_PipeHandle pipe) {
-    PipeInfo* pipeInfo = (PipeInfo*)pipe;
-    delete pipeInfo;
-    return 1;
+    try {
+        PipeInfo* pipeInfo = getPipeInfo(pipe);
+        delete pipeInfo;
+        return 1;
+    } catch (std::exception& e) {
+        setErrorMessage(e.what());
+        return 0;
+    }
 }
 
 XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe, int timeoutMsecs) {
-    PipeInfo* pipeInfo = (PipeInfo*)pipe;
     HANDLE newPipeHandle = INVALID_HANDLE_VALUE;
+    PipeInfo* pipeInfo = NULL;
     PipeInfo* newPipeInfo = NULL;    
     bool pipeConnected = false;
 
     try {
+        pipeInfo = getPipeInfo(pipe);
+
         OVERLAPPED overlapped;
         memset(&overlapped, 0, sizeof(overlapped));
 
@@ -368,7 +382,7 @@ int XPNP_readPipe(XPNP_PipeHandle pipe, char* buffer, int bufLen, int timeoutMse
         if (bufLen <= 0) {
             throw std::invalid_argument("bufLen <= 0");
         }
-        PipeInfo* pipeInfo = (PipeInfo*)pipe;
+        PipeInfo* pipeInfo = getPipeInfo(pipe);
         return readPipe(pipeInfo, buffer, bufLen, timeoutMsecs);
     } catch (std::exception& e) { 
         setErrorMessage(e.what());
@@ -376,12 +390,12 @@ int XPNP_readPipe(XPNP_PipeHandle pipe, char* buffer, int bufLen, int timeoutMse
     }
 }
 
-int XPNP_readBytes(XPNP_PipeHandle pipeHandle, char* buffer, int bytesToRead, int timeoutMsecs) {
+int XPNP_readBytes(XPNP_PipeHandle pipe, char* buffer, int bytesToRead, int timeoutMsecs) {
     try {
         if (bytesToRead <= 0) {
             throw std::invalid_argument("bytesToRead <= 0");
         }
-        PipeInfo* pipeInfo = (PipeInfo*)pipeHandle;
+        PipeInfo* pipeInfo = getPipeInfo(pipe);
         readBytes(pipeInfo, buffer, bytesToRead, timeoutMsecs);
         return 1;
     } catch (std::exception& e) {
@@ -460,7 +474,7 @@ int XPNP_writePipe(XPNP_PipeHandle pipe, const char* data, int bytesToWrite) {
         if (bytesToWrite <= 0) {
             throw std::invalid_argument("bytesToWrite <= 0");
         }
-        PipeInfo* pipeInfo = (PipeInfo*)pipe;
+        PipeInfo* pipeInfo = getPipeInfo(pipe);
         writeBytes(pipeInfo->getPipeHandle(), data, bytesToWrite);
         return 1;
     } catch (std::exception& e) {
