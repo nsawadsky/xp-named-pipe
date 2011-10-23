@@ -183,9 +183,7 @@ static void writeBytes(HANDLE pipeHandle, const char* pipeMsg, int bytesToWrite)
     checkWindowsResult(writeResult, "WriteFile");
 }
 
-static void readPipe(PipeInfo* pipeInfo, char* buffer, int bufLen, int* bytesRead, int timeoutMsecs) {
-    *bytesRead = 0;
-
+static int readPipe(PipeInfo* pipeInfo, char* buffer, int bufLen, int timeoutMsecs) {
     OVERLAPPED overlapped;
     memset(&overlapped, 0, sizeof(overlapped));
 
@@ -216,16 +214,16 @@ static void readPipe(PipeInfo* pipeInfo, char* buffer, int bufLen, int* bytesRea
             }
         }
     }
-    result = GetOverlappedResult(pipeInfo->getPipeHandle(), &overlapped, (LPDWORD)bytesRead, TRUE);
+    int bytesRead = 0;
+    result = GetOverlappedResult(pipeInfo->getPipeHandle(), &overlapped, (LPDWORD)&bytesRead, TRUE);
     checkWindowsResult(result, "GetOverlappedResult");
+    return bytesRead;
 }
 
 static void readBytes(PipeInfo* pipeInfo, char* buffer, int bytesToRead, int timeoutMsecs) {
     int totalBytesRead = 0;
     while (totalBytesRead < bytesToRead) {
-        int bytesRead = 0;
-        readPipe(pipeInfo, buffer + totalBytesRead, bytesToRead - totalBytesRead, &bytesRead, timeoutMsecs);
-        totalBytesRead += bytesRead;
+        totalBytesRead += readPipe(pipeInfo, buffer + totalBytesRead, bytesToRead - totalBytesRead, timeoutMsecs);
     }
 }
 
@@ -259,9 +257,9 @@ void XPNP_getErrorMessage(char* buffer, int bufLen) {
     }
 }
 
-int XPNP_makePipeName(const char* baseName, bool userLocal, char* pipeNameBuf, int bufLen) {
+int XPNP_makePipeName(const char* baseName, int userLocal, char* pipeNameBuf, int bufLen) {
     try {
-        std::string fullPipeName = makePipeName(baseName, userLocal);
+        std::string fullPipeName = makePipeName(baseName, userLocal != 0);
         if (strcpy_s(pipeNameBuf, bufLen, fullPipeName.c_str()) != 0) {
             throw std::runtime_error("Buffer too small");
         }
@@ -365,11 +363,13 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe, int timeoutMsecs) {
     return (XPNP_PipeHandle)newPipeInfo;
 }
 
-int XPNP_readPipe(XPNP_PipeHandle pipe, char* buffer, int bufLen, int* bytesRead, int timeoutMsecs) {
+int XPNP_readPipe(XPNP_PipeHandle pipe, char* buffer, int bufLen, int timeoutMsecs) {
     try {
+        if (bufLen <= 0) {
+            throw std::invalid_argument("bufLen <= 0");
+        }
         PipeInfo* pipeInfo = (PipeInfo*)pipe;
-        readPipe(pipeInfo, buffer, bufLen, bytesRead, timeoutMsecs);
-        return 1;
+        return readPipe(pipeInfo, buffer, bufLen, timeoutMsecs);
     } catch (std::exception& e) { 
         setErrorMessage(e.what());
         return 0;
@@ -378,6 +378,9 @@ int XPNP_readPipe(XPNP_PipeHandle pipe, char* buffer, int bufLen, int* bytesRead
 
 int XPNP_readBytes(XPNP_PipeHandle pipeHandle, char* buffer, int bytesToRead, int timeoutMsecs) {
     try {
+        if (bytesToRead <= 0) {
+            throw std::invalid_argument("bytesToRead <= 0");
+        }
         PipeInfo* pipeInfo = (PipeInfo*)pipeHandle;
         readBytes(pipeInfo, buffer, bytesToRead, timeoutMsecs);
         return 1;
@@ -454,6 +457,9 @@ XPNP_PipeHandle XPNP_openPipe(const char* pipeName, int privatePipe) {
 
 int XPNP_writePipe(XPNP_PipeHandle pipe, const char* data, int bytesToWrite) {
     try {
+        if (bytesToWrite <= 0) {
+            throw std::invalid_argument("bytesToWrite <= 0");
+        }
         PipeInfo* pipeInfo = (PipeInfo*)pipe;
         writeBytes(pipeInfo->getPipeHandle(), data, bytesToWrite);
         return 1;

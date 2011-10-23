@@ -3,231 +3,68 @@
 
 #include "stdafx.h"
 
+#include "util.hpp"
 #include "XpNamedPipeJni.h"
+#include "XpNamedPipe.h"
+
+using namespace util;
+
+static boost::thread_specific_ptr<std::string> GBL_errorMessage;
 
 const int BUF_LEN = 1024;
 
-static DWORD GBL_errorMessageTlsIndex = TlsAlloc();
-
-const wchar_t* PIPE_PREFIX = L"\\\\.\\pipe\\";
-
-const int PIPE_BUF_SIZE = 10 * 1024;
-
-// Type definitions
-class PipeInfo {
-public:
-    PipeInfo(const std::wstring& pipeName, bool privatePipe, HANDLE pipeHandle) {
-        this->pipeName = pipeName;
-        this->privatePipe = privatePipe;
-        this->pipeHandle = pipeHandle;
-    }
-
-    std::wstring pipeName;
-    bool privatePipe;
-    HANDLE pipeHandle;
-};
-
 // Local function definitions
 
-static bool setErrorMessage(const wchar_t* errorMessage) {
-    wchar_t* currMessage = (wchar_t*)TlsGetValue(GBL_errorMessageTlsIndex);
-    if (currMessage != NULL) {
-        if (TlsSetValue(GBL_errorMessageTlsIndex, NULL)) {
-            delete [] currMessage;
-        } else {
-            return false;
-        }
-    }
-    if (errorMessage == NULL) {
-        return true;
-    } else {
-        int bufSize = (int)wcslen(errorMessage) + 1;
-        wchar_t* newMessage = new wchar_t[bufSize];
-        if (newMessage == NULL) {
-            return false;
-        } else {
-            wcscpy_s(newMessage, bufSize, errorMessage);
-            if (TlsSetValue(GBL_errorMessageTlsIndex, newMessage)) {
-                return true;
-            } else {
-                delete [] newMessage;
-                return false;
-            }
-        }
-    }
+static void setErrorMessage(const std::string& errorMessage) {
+    GBL_errorMessage.reset(new std::string(errorMessage));
 }
 
-static std::wstring getWindowsErrorMessage(wchar_t* funcName) {
-    DWORD error = GetLastError();
-    wchar_t msg[BUF_LEN] = L"";
-    wchar_t buffer[BUF_LEN] = L"";
-    if (FormatMessage(
-            FORMAT_MESSAGE_FROM_SYSTEM |
-            FORMAT_MESSAGE_IGNORE_INSERTS,
-            NULL,
-            error,
-            0,
-            buffer, BUF_LEN, NULL) == 0) {
-        swprintf_s(msg, L"Failed to retrieve Windows error message");       
-    } else {
-        swprintf_s(msg, L"%s failed with %lu: %s", funcName, error, buffer);
-    }
-    return std::wstring(msg);
+static void throwXpnpError() {
+    char buffer[BUF_LEN] = "";
+    XPNP_getErrorMessage(buffer, sizeof(buffer));
+    throw std::runtime_error(buffer);
 }
 
-static std::wstring getUserSid() throw (std::wstring) {
-    bool error = false;
-    std::wstring errorMsg;
-    HANDLE tokenHandle = NULL;
-    PTOKEN_USER pUserInfo = NULL;
-    wchar_t* pSidString = NULL;
-    std::wstring sid;
-    try {
-        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &tokenHandle)) {
-            throw getWindowsErrorMessage(L"OpenThreadToken");
-        }
-        DWORD userInfoSize = 0;
-        GetTokenInformation(tokenHandle, TokenUser, NULL, 0, &userInfoSize);
-        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
-            throw getWindowsErrorMessage(L"GetTokenInformation");
-        }
-        pUserInfo = (PTOKEN_USER)malloc(userInfoSize);
-        if (pUserInfo == NULL) {
-            throw std::wstring(L"Out of memory");
-        }
-        if (!GetTokenInformation(tokenHandle, TokenUser, pUserInfo, userInfoSize, &userInfoSize)) {
-            throw getWindowsErrorMessage(L"GetTokenInformation");
-        }
-        if (!ConvertSidToStringSid(pUserInfo->User.Sid, &pSidString)) {
-            throw getWindowsErrorMessage(L"ConvertSidToStringSid");
-        }
-        sid = pSidString;
-            
-    } catch (std::wstring& tempErrorMsg) {
-        error = true;
-        errorMsg = tempErrorMsg;
-    }
-    if (tokenHandle != NULL) {
-        CloseHandle(tokenHandle);
-    }
-    if (pUserInfo != NULL) {
-        free(pUserInfo);
-    }
-    if (pSidString != NULL) {
-        LocalFree(pSidString);
-    }
-    if (error) {
-        throw errorMsg;
-    }
-    return sid;
-}
-
-static HANDLE createPipe(const std::wstring& pipeName, bool privatePipe) throw (std::wstring) {
-    bool error = false;
-    std::wstring errorMsg;
-    HANDLE pipeHandle = INVALID_HANDLE_VALUE;
-    SECURITY_ATTRIBUTES* pSA = NULL;
-    try {
-        if (privatePipe) {
-            pSA = new SECURITY_ATTRIBUTES;
-            if (pSA == NULL) {
-                throw std::wstring(L"Out of memory");
-            }
-            pSA->nLength = sizeof(SECURITY_ATTRIBUTES);
-            pSA->bInheritHandle = FALSE;
-            pSA->lpSecurityDescriptor = NULL;
-            std::wstring userSid = getUserSid();
-
-            // Allow GA access (generic all, i.e. full control) to the local system account, builtin administrators,
-            // and the current user's SID.  Inheritance is disabled (I don't think inheritance has any meaning in the context of
-            // pipes).  Because there is no inheritance, there is need to mention CO (creator owner).  CO represents the SID of a 
-            // user who creates a new object underneath a given object.  Deny access to processes on other machines 
-            // (whose token contains NU, the network logon user SID).
-            std::wstring sddl = L"D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;";
-            sddl.append(userSid);
-            sddl.append(L")(D;;GA;;;NU)");
-            if (!ConvertStringSecurityDescriptorToSecurityDescriptor(sddl.c_str(), SDDL_REVISION_1, &(pSA->lpSecurityDescriptor), NULL)) {
-                throw getWindowsErrorMessage(L"ConvertStringSecurityDescriptorToSecurityDescriptor");
-            }
-        }
-        pipeHandle = CreateNamedPipe(pipeName.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, PIPE_BUF_SIZE, PIPE_BUF_SIZE, 0, pSA);
-        if (pipeHandle == INVALID_HANDLE_VALUE) {
-            throw getWindowsErrorMessage(L"CreateNamedPipe");
-        }
-    } catch (std::wstring& tempErrorMsg) {
-        error = true;
-        errorMsg = tempErrorMsg;
-    }
-
-    if (pSA != NULL) {
-        if (pSA->lpSecurityDescriptor != NULL) {
-            LocalFree(pSA->lpSecurityDescriptor);
-        }
-        delete pSA;
-    }
-    if (error) {
-        throw errorMsg;
-    }
-    return pipeHandle;
-}
-
-static void readBytes(HANDLE pipeHandle, char* readBuf, int bytesToRead, OVERLAPPED* overlapped) throw (std::wstring) {
-    int totalBytesRead = 0;
-    while (totalBytesRead < bytesToRead) {
-        DWORD bytesRead = 0;
-        BOOL readResult = ReadFile(pipeHandle, readBuf + totalBytesRead, bytesToRead - totalBytesRead, &bytesRead, overlapped);
-        if (!readResult && GetLastError() == ERROR_IO_PENDING) {
-            readResult = GetOverlappedResult(pipeHandle, overlapped, &bytesRead, TRUE);
-        }
-        if (!readResult) {
-            throw getWindowsErrorMessage(L"ReadFile");
-        }
-        totalBytesRead += bytesRead;
+static void checkXpnpResult(int result) {
+    if (result == 0) {
+        throwXpnpError();
     }
 }
 
 // Exported function definitions
 
 jstring JNICALL Java_xpnp_XpNamedPipe_getErrorMessage(JNIEnv* pEnv, jclass cls) {
-    std::wstring errorMessageStr;
-    wchar_t* errorMessage = (wchar_t*)TlsGetValue(GBL_errorMessageTlsIndex);
-    if (errorMessage == NULL) {
-        if (GetLastError() != ERROR_SUCCESS) {
-            errorMessageStr = L"Failed to retrieve error message: ";
-            errorMessageStr += getWindowsErrorMessage(L"TlsGetValue");
+    std::wstring errorMsgUtf16;
+
+    std::string* pErrorMsg = GBL_errorMessage.get();
+
+    if (pErrorMsg != NULL) {
+        try {
+            errorMsgUtf16 = toUtf16(*pErrorMsg);
+        } catch (...) {
+            errorMsgUtf16 = L"Error converting error message to UTF-16";
         }
-    } else {
-        errorMessageStr = errorMessage;
     }
-    return pEnv->NewString((const jchar*)errorMessageStr.c_str(), (jsize)errorMessageStr.length());
+
+    return pEnv->NewString((const jchar*)errorMsgUtf16.c_str(), (jsize)errorMsgUtf16.length());
 }
 
 jstring JNICALL Java_xpnp_XpNamedPipe_makePipeName(JNIEnv* pEnv, jclass cls, jstring javaName, jboolean userLocal) {
     jstring result = NULL;
     const jchar* pipeName = NULL;
-    wchar_t fullPipeName[256] = L"";
     try {
         pipeName = pEnv->GetStringChars(javaName, NULL);
         if (pipeName == NULL) {
-            throw std::wstring(L"JNI out of memory");
+            throw std::bad_alloc();
         }
-        if (userLocal) {
-            std::wstring userSid = getUserSid();
+        char fullPipeName[256] = "";
+        int xpnpResult = XPNP_makePipeName(toUtf8((wchar_t*)pipeName).c_str(), userLocal, fullPipeName, sizeof(fullPipeName));
+        checkXpnpResult(xpnpResult);
 
-            HRESULT hr = swprintf_s(fullPipeName, L"%s%s\\%s", PIPE_PREFIX, userSid.c_str(), pipeName);
-            if (FAILED(hr)) {
-                throw std::wstring(L"When combined with user name and prefix, pipe name is too long");
-            }
-        } else {
-            HRESULT hr = swprintf_s(fullPipeName, L"%s%s", PIPE_PREFIX, pipeName);
-            if (FAILED(hr)) {
-                throw std::wstring(L"When combined with prefix, pipe name is too long");
-            }
-        }
-        result = pEnv->NewString((const jchar*)fullPipeName, (jsize)wcslen(fullPipeName));
-    } catch (std::wstring& errorMsg) {
-        setErrorMessage(errorMsg.c_str());
+        std::wstring fullPipeNameUtf16 = toUtf16(fullPipeName);
+        result = pEnv->NewString((const jchar*)fullPipeNameUtf16.c_str(), (jsize)fullPipeNameUtf16.length());
+    } catch (std::exception& except) {
+        setErrorMessage(except.what());
     }
 
     if (pipeName != NULL ){
@@ -239,217 +76,144 @@ jstring JNICALL Java_xpnp_XpNamedPipe_makePipeName(JNIEnv* pEnv, jclass cls, jst
 
 jlong JNICALL Java_xpnp_XpNamedPipe_createPipe(JNIEnv* pEnv, jclass cls, jstring javaName, 
         jboolean privatePipe) {
-    PipeInfo* pipeInfo = NULL;
-    HANDLE pipeHandle = INVALID_HANDLE_VALUE;
     const jchar* pipeName = NULL;
+    XPNP_PipeHandle pipeHandle = NULL;
     try {
         pipeName = pEnv->GetStringChars(javaName, NULL);
         if (pipeName == NULL) {
-            throw std::wstring(L"JNI out of memory");
+            throw std::bad_alloc();
         }
-        std::wstring pipeNameStr = std::wstring((wchar_t*)pipeName);
-        pipeHandle = createPipe(pipeNameStr, privatePipe != FALSE);
-        pipeInfo = new PipeInfo(pipeNameStr, privatePipe != FALSE, pipeHandle);
-        if (pipeInfo == NULL) {
-            throw std::wstring(L"Out of memory");
+        std::string pipeNameUtf8 = toUtf8((wchar_t*)pipeName);
+        pipeHandle = XPNP_createPipe(pipeNameUtf8.c_str(), privatePipe);
+        if (pipeHandle == NULL) {
+            throwXpnpError();
         }
-    } catch (std::wstring& errorMsg) {
-        setErrorMessage(errorMsg.c_str());
-        if (pipeHandle != INVALID_HANDLE_VALUE) {
-            CloseHandle(pipeHandle);
-        }
+    } catch (std::exception& except) {
+        setErrorMessage(except.what());
     }
 
     if (pipeName != NULL ){
         pEnv->ReleaseStringChars(javaName, pipeName);
     }
-    return (jlong)(unsigned __int64)pipeInfo;
+    return (jlong)(unsigned __int64)pipeHandle;
 }
 
-jboolean JNICALL Java_xpnp_XpNamedPipe_closePipe(JNIEnv* pEnv, jclass cls, jlong pipe) {
-    PipeInfo* pipeInfo = (PipeInfo*)pipe;
-    if (pipeInfo != NULL) {
-        CloseHandle(pipeInfo->pipeHandle);
-        delete pipeInfo;
-    }
-    return TRUE;
-}
-
-jlong JNICALL Java_xpnp_XpNamedPipe_acceptConnection(JNIEnv* pEnv, jclass cls, jlong pipe) {
-    PipeInfo* pipeInfo = (PipeInfo*)pipe;
-    HANDLE newPipeHandle = INVALID_HANDLE_VALUE;
-    PipeInfo* newPipeInfo = NULL;    
-    OVERLAPPED overlapped;
-    memset(&overlapped, 0, sizeof(overlapped));
-
+jboolean JNICALL Java_xpnp_XpNamedPipe_stopPipe(JNIEnv* pEnv, jclass cls, jlong pipeHandle) {
     try {
-        // Create new listening pipe
-        newPipeHandle = createPipe(pipeInfo->pipeName, pipeInfo->privatePipe);
-
-        overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-        if (overlapped.hEvent == NULL) {
-            throw getWindowsErrorMessage(L"CreateEvent");
-        }
-        
-        DWORD unused = 0;
-        BOOL connectResult = ConnectNamedPipe(pipeInfo->pipeHandle, &overlapped);
-        if (!connectResult && GetLastError() == ERROR_IO_PENDING) {
-            connectResult = GetOverlappedResult(pipeInfo->pipeHandle, &overlapped, &unused, TRUE);
-        }
-        if (!connectResult && GetLastError() != ERROR_PIPE_CONNECTED) {
-            throw getWindowsErrorMessage(L"ConnectNamedPipe");
-        }
-
-        // The new pipe info receives the existing pipe handle
-        newPipeInfo = new PipeInfo(pipeInfo->pipeName, pipeInfo->privatePipe, pipeInfo->pipeHandle);
-        if (newPipeInfo == NULL) {
-            throw std::wstring(L"Out of memory");
-        }
-        // The old pipe info receives the new listening pipe handle
-        pipeInfo->pipeHandle = newPipeHandle;
-    } catch (std::wstring& errorMsg) {
-        setErrorMessage(errorMsg.c_str());
-        if (newPipeHandle != INVALID_HANDLE_VALUE) {
-            CloseHandle(newPipeHandle);
-        }
+        checkXpnpResult(XPNP_stopPipe((XPNP_PipeHandle)pipeHandle));
+        return 1;
+    } catch (std::exception& except) {
+        setErrorMessage(except.what());
+        return 0;
     }
-    if (overlapped.hEvent != NULL) {
-        CloseHandle(overlapped.hEvent);
-    }
-    return (jlong)(unsigned __int64)newPipeInfo;
 }
 
-jobject JNICALL Java_xpnp_XpNamedPipe_readPipe(JNIEnv* pEnv, jclass cls, jlong pipe) {
-    PipeInfo* pipeInfo = (PipeInfo*)pipe;
-
-    OVERLAPPED overlapped;
-    memset(&overlapped, 0, sizeof(overlapped));
-
-    jbyteArray resultArray = NULL;
-    char* readBuffer = NULL;
+jboolean JNICALL Java_xpnp_XpNamedPipe_closePipe(JNIEnv* pEnv, jclass cls, jlong pipeHandle) {
     try {
-        overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-        if (overlapped.hEvent == NULL) {
-            throw getWindowsErrorMessage(L"CreateEvent");
+        checkXpnpResult(XPNP_stopPipe((XPNP_PipeHandle)pipeHandle));
+        return 1;
+    } catch (std::exception& except) {
+        setErrorMessage(except.what());
+        return 0;
+    }
+}
+
+jlong JNICALL Java_xpnp_XpNamedPipe_acceptConnection(JNIEnv* pEnv, jclass cls, jlong pipeHandle, jint timeoutMsecs) {
+    try {
+        XPNP_PipeHandle newPipe = XPNP_acceptConnection((XPNP_PipeHandle)pipeHandle, timeoutMsecs);
+        if (newPipe == NULL) {
+            throwXpnpError();
         }
+        return (jlong)(unsigned __int64)newPipe;
+    } catch (std::exception& except) {
+        setErrorMessage(except.what());
+        return 0;
+    }
+}
 
-        int msgLength = 0;
-        readBytes(pipeInfo->pipeHandle, (char*)&msgLength, sizeof(msgLength), &overlapped);
-
-        msgLength = ntohl(msgLength);
-
-        readBuffer = new char[msgLength];
+jint JNICALL Java_xpnp_XpNamedPipe_readPipe(JNIEnv* pEnv, jclass cls, jlong pipeHandle, jbyteArray readBufferJava, jint timeoutMsecs) {
+    jbyte* readBuffer = NULL;
+    int bytesRead = 0;
+    try {
+        readBuffer = pEnv->GetByteArrayElements(readBufferJava, NULL);
         if (readBuffer == NULL) {
-            throw std::wstring(L"Out of memory");
+            throw std::bad_alloc();
         }
 
-        readBytes(pipeInfo->pipeHandle, readBuffer, msgLength, &overlapped);
-
-        resultArray = pEnv->NewByteArray((jsize)msgLength);
-        if (resultArray == NULL) {
-            throw std::wstring(L"JNI out of memory");
-        }
-        pEnv->SetByteArrayRegion(resultArray, 0, (jsize)msgLength, (jbyte*)readBuffer);
-    } catch (std::wstring& errorMsg) { 
-        setErrorMessage(errorMsg.c_str());
-    }
-    if (overlapped.hEvent != NULL) {
-        CloseHandle(overlapped.hEvent);
+        bytesRead = XPNP_readPipe((XPNP_PipeHandle)pipeHandle, (char*)readBuffer, pEnv->GetArrayLength(readBufferJava), timeoutMsecs);
+        checkXpnpResult(bytesRead);
+    } catch (std::exception& except) { 
+        setErrorMessage(except.what());
     }
     if (readBuffer != NULL) {
-        delete [] readBuffer;
+        pEnv->ReleaseByteArrayElements(readBufferJava, readBuffer, 0);
     }
-    return resultArray;
+    return bytesRead;
 }
 
-jlong JNICALL Java_xpnp_XpNamedPipe_openPipe(JNIEnv* pEnv, jclass cls, jstring pipeNameJava) {
-    const jchar* pipeName = NULL;
-    PipeInfo* pipeInfo = NULL;
-    HANDLE pipeHandle = INVALID_HANDLE_VALUE;
+jboolean JNICALL Java_xpnp_XpNamedPipe_readBytes(JNIEnv* pEnv, jclass cls, jlong pipeHandle, jbyteArray readBufferJava, jint bytesToRead, 
+            jint timeoutMsecs) {
+    jbyte* readBuffer = NULL;
+    jboolean result = 0;
     try {
-        pipeName = pEnv->GetStringChars(pipeNameJava, NULL);
-        if (pipeName == NULL) {
-            throw std::wstring(L"Out of memory");
+        if (bytesToRead > pEnv->GetArrayLength(readBufferJava)) {
+            throw std::length_error("Buffer length less than bytesToRead");
         }
-        int tries = 0; 
-        DWORD createError = 0;
-        do {
-            pipeHandle = CreateFile((LPCWSTR)pipeName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
-            tries++;
-            if (pipeHandle == INVALID_HANDLE_VALUE && tries < 5) {
-                createError = GetLastError();
-                if (createError == ERROR_PIPE_BUSY) {
-                    Sleep(100);
-                }
-            }
-        } while (pipeHandle == INVALID_HANDLE_VALUE && tries < 5 && createError == ERROR_PIPE_BUSY);
-
-        if (pipeHandle == INVALID_HANDLE_VALUE) {
-            throw getWindowsErrorMessage(L"CreateFile");
+        readBuffer = pEnv->GetByteArrayElements(readBufferJava, NULL);
+        if (readBuffer == NULL) {
+            throw std::bad_alloc();
         }
 
-        pipeInfo = new PipeInfo(std::wstring((wchar_t*)pipeName), true, pipeHandle);
-        if (pipeInfo == NULL) {
-            throw std::wstring(L"Out of memory");
-        }
-    } catch (std::wstring& errorMsg) {
-        setErrorMessage(errorMsg.c_str());
-        if (pipeHandle != INVALID_HANDLE_VALUE) {
-            CloseHandle(pipeHandle);
-        }
+        result = XPNP_readBytes((XPNP_PipeHandle)pipeHandle, (char*)readBuffer, bytesToRead, timeoutMsecs);
+        checkXpnpResult(result);
+    } catch (std::exception& except) { 
+        setErrorMessage(except.what());
     }
-    if (pipeName != NULL) {
-        pEnv->ReleaseStringChars(pipeNameJava, pipeName);
+    if (readBuffer != NULL) {
+        pEnv->ReleaseByteArrayElements(readBufferJava, readBuffer, 0);
     }
-    return (jlong)(unsigned __int64)pipeInfo;
+    return result;
 }
 
-jboolean JNICALL Java_xpnp_XpNamedPipe_writePipe(JNIEnv* pEnv, jclass cls, jlong pipe, jbyteArray pipeMsgJava) {
-    PipeInfo* pipeInfo = (PipeInfo*)pipe;
-    jboolean result = FALSE;
-    jbyte* pipeMsg = NULL;
-    OVERLAPPED overlapped;
-    memset(&overlapped, 0, sizeof(overlapped));
+jlong JNICALL Java_xpnp_XpNamedPipe_openPipe(JNIEnv* pEnv, jclass cls, jstring pipeNameJava, jboolean privatePipe) {
+    const jchar* pipeNameUtf16 = NULL;
+    XPNP_PipeHandle newPipe = NULL;
     try {
-        pipeMsg = pEnv->GetByteArrayElements(pipeMsgJava, NULL);
-        if (pipeMsg == NULL) {
-            throw std::wstring(L"JNI out of memory");
+        pipeNameUtf16 = pEnv->GetStringChars(pipeNameJava, NULL);
+        if (pipeNameUtf16 == NULL) {
+            throw std::bad_alloc();
         }
-        jsize bytesToWrite = pEnv->GetArrayLength(pipeMsgJava);
-        overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-        if (overlapped.hEvent == NULL) {
-            throw getWindowsErrorMessage(L"CreateEvent");
+        std::string pipeName = toUtf8((wchar_t*)pipeNameUtf16);
+        newPipe = XPNP_openPipe(pipeName.c_str(), privatePipe);
+        if (newPipe == NULL) {
+            throwXpnpError();
         }
-
-        DWORD bytesWritten = 0;
-        int msgLength = htonl(bytesToWrite);
-
-        BOOL writeResult = WriteFile(pipeInfo->pipeHandle, &msgLength, sizeof(msgLength), &bytesWritten, &overlapped);
-        if (!writeResult && GetLastError() == ERROR_IO_PENDING) {
-            writeResult = GetOverlappedResult(pipeInfo->pipeHandle, &overlapped, &bytesWritten, TRUE);
-        }
-
-        if (!writeResult) {
-            throw getWindowsErrorMessage(L"WriteFile");
-        }
-
-        writeResult = WriteFile(pipeInfo->pipeHandle, pipeMsg, bytesToWrite, &bytesWritten, &overlapped);
-        if (!writeResult && GetLastError() == ERROR_IO_PENDING) {
-            writeResult = GetOverlappedResult(pipeInfo->pipeHandle, &overlapped, &bytesWritten, TRUE);
-        }
-
-        if (!writeResult) {
-            throw getWindowsErrorMessage(L"WriteFile");
-        }
-        result = TRUE;
-    } catch (std::wstring& errorMsg) {
-        setErrorMessage(errorMsg.c_str());
+    } catch (std::exception& except) {
+        setErrorMessage(except.what());
     }
-    if (overlapped.hEvent != NULL) {
-        CloseHandle(overlapped.hEvent);
+
+    if (pipeNameUtf16 != NULL) {
+        pEnv->ReleaseStringChars(pipeNameJava, pipeNameUtf16);
     }
-    if (pipeMsg != NULL) {
-        pEnv->ReleaseByteArrayElements(pipeMsgJava, pipeMsg, 0);
+
+    return (jlong)(unsigned __int64)newPipe;
+}
+
+jboolean JNICALL Java_xpnp_XpNamedPipe_writePipe(JNIEnv* pEnv, jclass cls, jlong pipe, jbyteArray pipeDataJava) {
+    jboolean result = 0;
+    jbyte* pipeData = NULL;
+    try {
+        pipeData = pEnv->GetByteArrayElements(pipeDataJava, NULL);
+        if (pipeData == NULL) {
+            throw std::bad_alloc();
+        }
+        result = XPNP_writePipe((XPNP_PipeHandle)pipe, (char*)pipeData, pEnv->GetArrayLength(pipeDataJava));
+        checkXpnpResult(result);
+    } catch (std::exception& except) {
+        setErrorMessage(except.what());
+    }
+    if (pipeData != NULL) {
+        pEnv->ReleaseByteArrayElements(pipeDataJava, pipeData, 0);
     }
     return result;
 }
