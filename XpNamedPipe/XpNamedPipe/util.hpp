@@ -105,11 +105,11 @@ namespace util {
             if (conversionResult == 0) {
                 throwWindowsError("Error converting string to UTF-8: ", "WideCharToMultiByte");
             }
-        } catch (std::exception& e) {
+        } catch (...) {
             if (result != NULL) {
                 delete [] result;
             }
-            throw e;
+            throw;
         }
         return result;
     }
@@ -126,11 +126,11 @@ namespace util {
             if (conversionResult == 0) {
                 throwWindowsError("Error converting string to UTF-16: ", "MultiByteToWideChar");
             }
-        } catch (std::exception& e) {
+        } catch (...) {
             if (result != NULL) {
                 delete [] result;
             }
-            throw e;
+            throw;
         }
         return result;
     }
