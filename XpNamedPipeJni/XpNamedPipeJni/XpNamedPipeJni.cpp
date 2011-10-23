@@ -31,6 +31,43 @@ static void checkXpnpResult(int result) {
     }
 }
 
+static std::string toStdString(JNIEnv* pEnv, jstring javaString) {
+    const jchar* javaChars = NULL;
+    std::string result;
+    bool error = false;
+    std::exception except;
+    try {
+        javaChars = pEnv->GetStringChars(javaString, NULL);
+        if (javaChars == NULL) {
+            throw std::bad_alloc();
+        }
+
+        std::wstring utf16 = std::wstring((wchar_t*)javaChars, pEnv->GetStringLength(javaString));
+        
+        result = toUtf8(utf16);
+    } catch (std::exception& e) {
+        error = true;
+        except = e;
+    }
+    if (javaChars != NULL) {
+        pEnv->ReleaseStringChars(javaString, javaChars);
+    }
+
+    if (error) {
+        throw except;
+    }
+    return result;
+}
+
+static jstring toJavaString(JNIEnv* pEnv, const std::string& utf8) {
+    std::wstring utf16 = toUtf16(utf8);
+    jstring result = pEnv->NewString((const jchar*)utf16.c_str(), (jsize)utf16.length());
+    if (result == NULL) {
+        throw std::bad_alloc();
+    }
+    return result;
+}
+
 // Exported function definitions
 
 jstring JNICALL Java_xpnp_XpNamedPipe_getErrorMessage(JNIEnv* pEnv, jclass cls) {
@@ -51,24 +88,16 @@ jstring JNICALL Java_xpnp_XpNamedPipe_getErrorMessage(JNIEnv* pEnv, jclass cls) 
 
 jstring JNICALL Java_xpnp_XpNamedPipe_makePipeName(JNIEnv* pEnv, jclass cls, jstring javaName, jboolean userLocal) {
     jstring result = NULL;
-    const jchar* pipeName = NULL;
     try {
-        pipeName = pEnv->GetStringChars(javaName, NULL);
-        if (pipeName == NULL) {
-            throw std::bad_alloc();
-        }
+        std::string pipeName = toStdString(pEnv, javaName);
+
         char fullPipeName[256] = "";
-        int xpnpResult = XPNP_makePipeName(toUtf8((wchar_t*)pipeName).c_str(), userLocal, fullPipeName, sizeof(fullPipeName));
+        int xpnpResult = XPNP_makePipeName(pipeName.c_str(), userLocal, fullPipeName, sizeof(fullPipeName));
         checkXpnpResult(xpnpResult);
 
-        std::wstring fullPipeNameUtf16 = toUtf16(fullPipeName);
-        result = pEnv->NewString((const jchar*)fullPipeNameUtf16.c_str(), (jsize)fullPipeNameUtf16.length());
+        result = toJavaString(pEnv, fullPipeName);
     } catch (std::exception& except) {
         setErrorMessage(except.what());
-    }
-
-    if (pipeName != NULL ){
-        pEnv->ReleaseStringChars(javaName, pipeName);
     }
 
     return result;
@@ -76,15 +105,12 @@ jstring JNICALL Java_xpnp_XpNamedPipe_makePipeName(JNIEnv* pEnv, jclass cls, jst
 
 jlong JNICALL Java_xpnp_XpNamedPipe_createPipe(JNIEnv* pEnv, jclass cls, jstring javaName, 
         jboolean privatePipe) {
-    const jchar* pipeName = NULL;
     XPNP_PipeHandle pipeHandle = NULL;
     try {
-        pipeName = pEnv->GetStringChars(javaName, NULL);
-        if (pipeName == NULL) {
-            throw std::bad_alloc();
-        }
-        std::string pipeNameUtf8 = toUtf8((wchar_t*)pipeName);
-        pipeHandle = XPNP_createPipe(pipeNameUtf8.c_str(), privatePipe);
+        std::string pipeName = toStdString(pEnv, javaName);
+
+        pipeHandle = XPNP_createPipe(pipeName.c_str(), privatePipe);
+
         if (pipeHandle == NULL) {
             throwXpnpError();
         }
@@ -92,9 +118,6 @@ jlong JNICALL Java_xpnp_XpNamedPipe_createPipe(JNIEnv* pEnv, jclass cls, jstring
         setErrorMessage(except.what());
     }
 
-    if (pipeName != NULL ){
-        pEnv->ReleaseStringChars(javaName, pipeName);
-    }
     return (jlong)(unsigned __int64)pipeHandle;
 }
 
@@ -175,25 +198,16 @@ jboolean JNICALL Java_xpnp_XpNamedPipe_readBytes(JNIEnv* pEnv, jclass cls, jlong
     return result;
 }
 
-jlong JNICALL Java_xpnp_XpNamedPipe_openPipe(JNIEnv* pEnv, jclass cls, jstring pipeNameJava, jboolean privatePipe) {
-    const jchar* pipeNameUtf16 = NULL;
+jlong JNICALL Java_xpnp_XpNamedPipe_openPipe(JNIEnv* pEnv, jclass cls, jstring javaName, jboolean privatePipe) {
     XPNP_PipeHandle newPipe = NULL;
     try {
-        pipeNameUtf16 = pEnv->GetStringChars(pipeNameJava, NULL);
-        if (pipeNameUtf16 == NULL) {
-            throw std::bad_alloc();
-        }
-        std::string pipeName = toUtf8((wchar_t*)pipeNameUtf16);
+        std::string pipeName = toStdString(pEnv, javaName);
         newPipe = XPNP_openPipe(pipeName.c_str(), privatePipe);
         if (newPipe == NULL) {
             throwXpnpError();
         }
     } catch (std::exception& except) {
         setErrorMessage(except.what());
-    }
-
-    if (pipeNameUtf16 != NULL) {
-        pEnv->ReleaseStringChars(pipeNameJava, pipeNameUtf16);
     }
 
     return (jlong)(unsigned __int64)newPipe;

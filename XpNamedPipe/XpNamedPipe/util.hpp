@@ -2,7 +2,7 @@
 
 #include <stdexcept>
 #include <string>
-#include <strstream>
+#include <sstream>
 #include <boost/scoped_ptr.hpp>
 #include <boost/scoped_array.hpp>
 
@@ -10,7 +10,7 @@ namespace util {
     static std::string getWindowsErrorMessage(const std::string& prepend, const std::string& funcName) {
         DWORD error = GetLastError();
 
-        std::strstream msg;
+        std::stringstream msg;
         if (!prepend.empty()) {
             msg << prepend << ": ";
         }

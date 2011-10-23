@@ -14,51 +14,22 @@ public class XpNamedPipeServer implements Runnable {
     
     @Override
     public void run() {
-        long listenPipeHandle = 0;
-        long newPipeHandle = 0;
         try {
-            String pipeName = XpNamedPipe.makePipeName("historyminer", true);
-            if (pipeName == null) {
-                System.out.println("makePipeName failed: " + XpNamedPipe.getErrorMessage());
-                return;
-            }
-            System.out.println("pipeName = " + pipeName);
+            XpNamedPipe listeningPipe = XpNamedPipe.createNamedPipe("historyminer", true);
+            System.out.println("Created listening pipe");
             
-            listenPipeHandle = XpNamedPipe.createPipe(pipeName, true);
-            if (listenPipeHandle == 0) {
-                System.out.println("createPipe failed: " + XpNamedPipe.getErrorMessage());
-                return;
-            }
+            XpNamedPipe newConn = listeningPipe.acceptConnection();
+            System.out.println("Accepted connection");
             
-            newPipeHandle = XpNamedPipe.acceptConnection(listenPipeHandle);
-            if (newPipeHandle == 0) {
-                System.out.println("acceptConnection failed: " + XpNamedPipe.getErrorMessage());
-                return;
-            }
+            byte[] buffer = new byte[1024];
+            newConn.read(buffer);
             
-            System.out.println("connectPipe returned");
+            System.out.println("Got message: " + new String(buffer, "UTF-8"));
             
-            byte [] msg = null;
-            do {
-                msg = XpNamedPipe.readPipe(newPipeHandle);
-                if (msg != null) {
-                    System.out.println("Message = " + new String(msg, "UTF-8"));
-                }
-            } while (msg != null);
-            System.out.println("readPipe returned error: " + XpNamedPipe.getErrorMessage());
+            newConn.close();
+            listeningPipe.close();
         } catch (Exception e) {
             System.out.println("Server caught exception: " + e);
-        } finally {
-            if (newPipeHandle != 0) {
-                if (!XpNamedPipe.closePipe(newPipeHandle)) {
-                    System.out.println("closePipe returned error: " + XpNamedPipe.getErrorMessage());
-                }
-            }
-            if (listenPipeHandle != 0) {
-                if (!XpNamedPipe.closePipe(listenPipeHandle)) {
-                    System.out.println("closePipe returned error: " + XpNamedPipe.getErrorMessage());
-                }
-            }
         }
     }
 
