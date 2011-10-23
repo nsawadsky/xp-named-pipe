@@ -1,6 +1,7 @@
 package xpnp;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 public class XpNamedPipe {
     private long namedPipeHandle = 0;
@@ -82,6 +83,26 @@ public class XpNamedPipe {
         if (!readBytes(namedPipeHandle, buffer, bytesToRead, timeoutMsecs)) {
             throw new IOException("Failed to read bytes: " + getErrorMessage());
         }
+    }
+    
+    public byte[] readMessage() throws IOException {
+        return readMessage(-1);
+    }
+    
+    public byte[] readMessage(int timeoutMsecs) throws IOException {
+        ByteBuffer lengthBuffer = ByteBuffer.allocate(4);
+        readBytes(lengthBuffer.array(), 4, timeoutMsecs);
+        int length = lengthBuffer.getInt();
+        byte[] buffer = new byte[length];
+        readBytes(buffer, length, timeoutMsecs);
+        return buffer;
+    }
+    
+    public void writeMessage(byte[] buffer) throws IOException {
+        ByteBuffer lengthBuffer = ByteBuffer.allocate(4);
+        lengthBuffer.putInt(buffer.length);
+        write(lengthBuffer.array());
+        write(buffer);
     }
     
     public void write(byte[] buffer) throws IOException {

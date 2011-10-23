@@ -32,21 +32,19 @@ public class XpNamedPipeServer implements Runnable {
             
             System.out.println("Accepted connection");
             
-            byte[] buffer = new byte[1024];
-            
             System.out.println("Waiting for 1 second for message");
             try {
-                newConn.read(buffer, 1000);
+                newConn.readMessage(1000);
             } catch (IOException e) {
                 System.out.println("Caught IOException: " + e);
             }
             System.out.println("Waiting indefinitely for message");
-            newConn.read(buffer);
+            byte[] buffer = newConn.readMessage();
             
             System.out.println("Got message: " + new String(buffer, "UTF-8"));
             
             System.out.println("Sending response");
-            newConn.write("Well, hi there!".getBytes("UTF-8"));
+            newConn.writeMessage("Well, hi there!".getBytes("UTF-8"));
             
             Thread.sleep(2000);
             
