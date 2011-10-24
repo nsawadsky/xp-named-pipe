@@ -133,7 +133,7 @@ jboolean JNICALL Java_xpnp_XpNamedPipe_stopPipe(JNIEnv* pEnv, jclass cls, jlong 
 
 jboolean JNICALL Java_xpnp_XpNamedPipe_closePipe(JNIEnv* pEnv, jclass cls, jlong pipeHandle) {
     try {
-        checkXpnpResult(XPNP_stopPipe((XPNP_PipeHandle)pipeHandle));
+        checkXpnpResult(XPNP_closePipe((XPNP_PipeHandle)pipeHandle));
         return 1;
     } catch (std::exception& except) {
         setErrorMessage(except.what());
