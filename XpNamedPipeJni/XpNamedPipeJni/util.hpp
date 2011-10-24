@@ -1,11 +1,14 @@
 #pragma once
 
+#define WIN32_LEAN_AND_MEAN             
+#include <windows.h>
+
 #include <stdexcept>
 #include <string>
 #include <sstream>
 
 namespace util {
-    static std::string getWindowsErrorMessage(const std::string& prepend, const std::string& funcName) {
+    inline std::string getWindowsErrorMessage(const std::string& prepend, const std::string& funcName) {
         DWORD error = GetLastError();
 
         std::stringstream msg;
@@ -29,25 +32,25 @@ namespace util {
         return msg.str();
     }
 
-    static std::string getWindowsErrorMessage(const std::string& funcName) {
+    inline std::string getWindowsErrorMessage(const std::string& funcName) {
         return getWindowsErrorMessage(std::string(), funcName);
     }
 
-    static void throwWindowsError(const std::string& prepend, const std::string& funcName) {
+    inline void throwWindowsError(const std::string& prepend, const std::string& funcName) {
         throw std::runtime_error(getWindowsErrorMessage(prepend, funcName));
     }
 
-    static void throwWindowsError(const std::string& funcName) {
+    inline void throwWindowsError(const std::string& funcName) {
         throwWindowsError(std::string(), funcName);
     }
 
-    static void checkWindowsResult(BOOL result, const std::string& prepend, const std::string& funcName) {
+    inline void checkWindowsResult(BOOL result, const std::string& prepend, const std::string& funcName) {
         if (!result) {
             throwWindowsError(prepend, funcName);
         }
     }
 
-    static void checkWindowsResult(BOOL result, const std::string& funcName) {
+    inline void checkWindowsResult(BOOL result, const std::string& funcName) {
         checkWindowsResult(result, std::string(), funcName);
     }
 
@@ -97,7 +100,7 @@ namespace util {
     typedef ScopedHandleT<NULL> ScopedHandle;
     typedef ScopedHandleT<INVALID_HANDLE_VALUE> ScopedFileHandle;
 
-    static char* newUtf8(const wchar_t* utf16) {
+    inline char* newUtf8(const wchar_t* utf16) {
         char* result = NULL;
         try {
             int utf8BufLen = WideCharToMultiByte(CP_UTF8, 0, utf16, -1, NULL, 0, NULL, NULL);
@@ -118,7 +121,7 @@ namespace util {
         return result;
     }
 
-    static wchar_t* newUtf16(const char* utf8) {
+    inline wchar_t* newUtf16(const char* utf8) {
         wchar_t* result = NULL;
         try {
             int utf16BufLen = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
@@ -139,14 +142,14 @@ namespace util {
         return result;
     }
 
-    static std::string toUtf8(const std::wstring& utf16) {
+    inline std::string toUtf8(const std::wstring& utf16) {
         char* utf8 = newUtf8(utf16.c_str());
         std::string result = utf8;
         delete [] utf8;
         return result;
     }
 
-    static std::wstring toUtf16(const std::string& utf8) {
+    inline std::wstring toUtf16(const std::string& utf8) {
         wchar_t* utf16 = newUtf16(utf8.c_str());
         std::wstring result = utf16;
         delete [] utf16;
