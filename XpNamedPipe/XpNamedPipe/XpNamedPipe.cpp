@@ -302,7 +302,7 @@ int XPNP_stopPipe(XPNP_PipeHandle pipe) {
     }
 }
 
-int XPNP_deletePipe(XPNP_PipeHandle pipe) {
+int XPNP_closePipe(XPNP_PipeHandle pipe) {
     try {
         PipeInfo* pipeInfo = getPipeInfo(pipe);
         delete pipeInfo;
