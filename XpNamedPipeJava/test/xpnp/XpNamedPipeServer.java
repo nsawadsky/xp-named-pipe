@@ -47,6 +47,7 @@ public class XpNamedPipeServer implements Runnable {
                 System.out.println("Sending response");
                 newConn.writeMessage("Well, hi there!".getBytes("UTF-8"));
                 
+                // Comment out the next line to test the pipe close case.
                 Thread.sleep(2000);
                 
                 System.out.println("Closing pipe");
