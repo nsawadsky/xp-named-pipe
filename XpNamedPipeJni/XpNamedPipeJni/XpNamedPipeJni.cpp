@@ -11,8 +11,6 @@ using namespace util;
 
 static boost::thread_specific_ptr<std::string> GBL_errorMessage;
 
-const int BUF_LEN = 1024;
-
 // Local function definitions
 
 static void setErrorMessage(const std::string& errorMessage) {
@@ -20,7 +18,7 @@ static void setErrorMessage(const std::string& errorMessage) {
 }
 
 static void throwXpnpError() {
-    char buffer[BUF_LEN] = "";
+    char buffer[1024] = "";
     XPNP_getErrorMessage(buffer, sizeof(buffer));
     throw std::runtime_error(buffer);
 }
