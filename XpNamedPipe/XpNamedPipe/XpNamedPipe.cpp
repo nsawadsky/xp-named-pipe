@@ -317,7 +317,7 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe, int timeoutMsecs) {
     HANDLE newPipeHandle = INVALID_HANDLE_VALUE;
     PipeInfo* pipeInfo = NULL;
     PipeInfo* newPipeInfo = NULL;    
-    bool pipeConnected = false;
+    bool connectAttempted = false;
 
     try {
         pipeInfo = getPipeInfo(pipe);
@@ -329,7 +329,8 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe, int timeoutMsecs) {
         evt.check("CreateEvent");
         
         BOOL result = ConnectNamedPipe(pipeInfo->getPipeHandle(), &overlapped);
-        
+        connectAttempted = true;
+
         if (!result && GetLastError() == ERROR_IO_PENDING) {
             DWORD unused = 0;
             HANDLE handles[2] = {pipeInfo->getStoppedEvent(), evt};
@@ -351,7 +352,6 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe, int timeoutMsecs) {
         if (!result && GetLastError() != ERROR_PIPE_CONNECTED) {
             throwWindowsError("ConnectNamedPipe");
         }
-        pipeConnected = true;
 
         std::vector<char> readBuf;
         readMessage(pipeInfo, readBuf, timeoutMsecs);
@@ -371,7 +371,7 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe, int timeoutMsecs) {
             CloseHandle(newPipeHandle);
         }
     }
-    if (pipeConnected) {
+    if (connectAttempted) {
         DisconnectNamedPipe(pipeInfo->getPipeHandle());
     }
     return (XPNP_PipeHandle)newPipeInfo;
@@ -413,17 +413,18 @@ XPNP_PipeHandle XPNP_openPipe(const char* pipeName, int privatePipe) {
         int tries = 0; 
         DWORD createError = 0;
 
+        const int MAX_TRIES = 15;
         std::wstring pipeNameUtf16 = toUtf16(pipeName);
         do {
             listeningPipeHandle = CreateFile(pipeNameUtf16.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
             tries++;
-            if (listeningPipeHandle == INVALID_HANDLE_VALUE && tries < 5) {
+            if (listeningPipeHandle == INVALID_HANDLE_VALUE && tries < MAX_TRIES) {
                 createError = GetLastError();
                 if (createError == ERROR_PIPE_BUSY) {
                     Sleep(100);
                 }
             }
-        } while (listeningPipeHandle == INVALID_HANDLE_VALUE && tries < 5 && createError == ERROR_PIPE_BUSY);
+        } while (listeningPipeHandle == INVALID_HANDLE_VALUE && tries < MAX_TRIES && createError == ERROR_PIPE_BUSY);
 
         listeningPipeHandle.check("CreateFile");
 
