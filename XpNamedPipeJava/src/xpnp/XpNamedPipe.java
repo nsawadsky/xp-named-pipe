@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 
 public class XpNamedPipe {
+    private final static int ERROR_CODE_TIMEOUT = 1;
+
     private long namedPipeHandle = 0;
     
     static {
@@ -55,41 +57,50 @@ public class XpNamedPipe {
         return acceptConnection(-1);
     }
     
-    public XpNamedPipe acceptConnection(int timeoutMsecs) throws IOException {
+    public XpNamedPipe acceptConnection(int timeoutMsecs) throws TimeoutException, IOException {
         long pipeHandle = acceptConnection(namedPipeHandle, timeoutMsecs);
         if (pipeHandle == 0) {
+            if (getErrorCode() == ERROR_CODE_TIMEOUT) {
+                throw new TimeoutException("Timeout waiting for client to connect: " + getErrorMessage());
+            }
             throw new IOException("Failed to accept connection: " + getErrorMessage());
         }
         return new XpNamedPipe(pipeHandle);
     }
     
-    public int read(byte[] buffer) throws IOException {
+    public int read(byte[] buffer) throws TimeoutException, IOException  {
         return read(buffer, -1);
     }
     
-    public int read(byte[] buffer, int timeoutMsecs) throws IOException {
+    public int read(byte[] buffer, int timeoutMsecs) throws TimeoutException, IOException  {
         int bytesRead = readPipe(namedPipeHandle, buffer, timeoutMsecs);
         if (bytesRead == 0) {
+            if (getErrorCode() == ERROR_CODE_TIMEOUT) {
+                throw new TimeoutException("Timeout waiting for data: " + getErrorMessage());
+            }
             throw new IOException("Failed to read pipe: " + getErrorMessage());
         }
         return bytesRead;
     }
    
-    public void readBytes(byte[] buffer, int bytesToRead) throws IOException {
+    public void readBytes(byte[] buffer, int bytesToRead) throws TimeoutException, IOException  {
         readBytes(buffer, bytesToRead, -1);
     }
     
-    public void readBytes(byte[] buffer, int bytesToRead, int timeoutMsecs) throws IOException {
+    public void readBytes(byte[] buffer, int bytesToRead, int timeoutMsecs) throws TimeoutException, IOException  {
         if (!readBytes(namedPipeHandle, buffer, bytesToRead, timeoutMsecs)) {
+            if (getErrorCode() == ERROR_CODE_TIMEOUT) {
+                throw new TimeoutException("Timeout waiting for data: " + getErrorMessage());
+            }
             throw new IOException("Failed to read bytes: " + getErrorMessage());
         }
     }
     
-    public byte[] readMessage() throws IOException {
+    public byte[] readMessage() throws TimeoutException, IOException  {
         return readMessage(-1);
     }
     
-    public byte[] readMessage(int timeoutMsecs) throws IOException {
+    public byte[] readMessage(int timeoutMsecs) throws TimeoutException, IOException  {
         ByteBuffer lengthBuffer = ByteBuffer.allocate(4);
         readBytes(lengthBuffer.array(), 4, timeoutMsecs);
         int length = lengthBuffer.getInt();
@@ -122,6 +133,8 @@ public class XpNamedPipe {
     private static native String makePipeName(String shortName, boolean userLocal);
 
     private static native String getErrorMessage();
+    
+    private static native int getErrorCode();
     
     private static native long createPipe(String fullName, boolean privatePipe);
     

@@ -8,6 +8,21 @@
 #include <sstream>
 
 namespace util {
+    class ErrorInfo : public std::runtime_error {
+    public: 
+        inline ErrorInfo(const std::string& errorMsg, int errorCode) : std::runtime_error(errorMsg) { 
+            this->errorCode = errorCode;
+        }
+
+        inline int getErrorCode() {
+            return this->errorCode;
+        }
+
+    private:
+        std::string errorMessage;
+        int errorCode;
+    };
+
     inline std::string getWindowsErrorMessage(const std::string& prepend, const std::string& funcName) {
         DWORD error = GetLastError();
 

@@ -3,8 +3,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 jstring JNICALL Java_xpnp_XpNamedPipe_getErrorMessage(JNIEnv* pEnv, jclass cls);
+
+jint JNICALL Java_xpnp_XpNamedPipe_getErrorCode(JNIEnv* pEnv, jclass cls);
 
 jstring JNICALL Java_xpnp_XpNamedPipe_makePipeName(JNIEnv* pEnv, jclass cls, jstring javaName, jboolean userLocal);
 

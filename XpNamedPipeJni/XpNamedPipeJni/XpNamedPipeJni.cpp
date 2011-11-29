@@ -9,18 +9,22 @@
 
 using namespace util;
 
-static boost::thread_specific_ptr<std::string> GBL_errorMessage;
+static boost::thread_specific_ptr<ErrorInfo> GBL_errorInfo;
 
 // Local function definitions
 
-static void setErrorMessage(const std::string& errorMessage) {
-    GBL_errorMessage.reset(new std::string(errorMessage));
+static void setErrorInfo(const std::string& errorMessage, int errorCode = 0) {
+    GBL_errorInfo.reset(new ErrorInfo(errorMessage, errorCode));
+}
+
+static void setErrorInfo(const ErrorInfo& info) {
+    GBL_errorInfo.reset(new ErrorInfo(info));
 }
 
 static void throwXpnpError() {
     char buffer[1024] = "";
     XPNP_getErrorMessage(buffer, sizeof(buffer));
-    throw std::runtime_error(buffer);
+    throw ErrorInfo(buffer, XPNP_getErrorCode());
 }
 
 static void checkXpnpResult(int result) {
@@ -71,17 +75,26 @@ static jstring toJavaString(JNIEnv* pEnv, const std::string& utf8) {
 jstring JNICALL Java_xpnp_XpNamedPipe_getErrorMessage(JNIEnv* pEnv, jclass cls) {
     std::wstring errorMsgUtf16;
 
-    std::string* pErrorMsg = GBL_errorMessage.get();
+    ErrorInfo* pErrorInfo = GBL_errorInfo.get();
 
-    if (pErrorMsg != NULL) {
+    if (pErrorInfo != NULL) {
         try {
-            errorMsgUtf16 = toUtf16(*pErrorMsg);
+            errorMsgUtf16 = toUtf16(pErrorInfo->what());
         } catch (...) {
             errorMsgUtf16 = L"Error converting error message to UTF-16";
         }
     }
 
     return pEnv->NewString((const jchar*)errorMsgUtf16.c_str(), (jsize)errorMsgUtf16.length());
+}
+
+jint JNICALL Java_xpnp_XpNamedPipe_getErrorCode(JNIEnv* pEnv, jclass cls) {
+    jint errorCode = 0;
+    ErrorInfo* pErrorInfo = GBL_errorInfo.get();
+    if (pErrorInfo != NULL) {
+        errorCode = pErrorInfo->getErrorCode();
+    }
+    return errorCode;
 }
 
 jstring JNICALL Java_xpnp_XpNamedPipe_makePipeName(JNIEnv* pEnv, jclass cls, jstring javaName, jboolean userLocal) {
@@ -95,7 +108,7 @@ jstring JNICALL Java_xpnp_XpNamedPipe_makePipeName(JNIEnv* pEnv, jclass cls, jst
 
         result = toJavaString(pEnv, fullPipeName);
     } catch (std::exception& except) {
-        setErrorMessage(except.what());
+        setErrorInfo(except.what());
     }
 
     return result;
@@ -113,7 +126,7 @@ jlong JNICALL Java_xpnp_XpNamedPipe_createPipe(JNIEnv* pEnv, jclass cls, jstring
             throwXpnpError();
         }
     } catch (std::exception& except) {
-        setErrorMessage(except.what());
+        setErrorInfo(except.what());
     }
 
     return (jlong)(unsigned __int64)pipeHandle;
@@ -124,7 +137,7 @@ jboolean JNICALL Java_xpnp_XpNamedPipe_stopPipe(JNIEnv* pEnv, jclass cls, jlong 
         checkXpnpResult(XPNP_stopPipe((XPNP_PipeHandle)pipeHandle));
         return 1;
     } catch (std::exception& except) {
-        setErrorMessage(except.what());
+        setErrorInfo(except.what());
         return 0;
     }
 }
@@ -134,7 +147,7 @@ jboolean JNICALL Java_xpnp_XpNamedPipe_closePipe(JNIEnv* pEnv, jclass cls, jlong
         checkXpnpResult(XPNP_closePipe((XPNP_PipeHandle)pipeHandle));
         return 1;
     } catch (std::exception& except) {
-        setErrorMessage(except.what());
+        setErrorInfo(except.what());
         return 0;
     }
 }
@@ -146,8 +159,11 @@ jlong JNICALL Java_xpnp_XpNamedPipe_acceptConnection(JNIEnv* pEnv, jclass cls, j
             throwXpnpError();
         }
         return (jlong)(unsigned __int64)newPipe;
+    } catch (ErrorInfo& info) {
+        setErrorInfo(info);
+        return 0;
     } catch (std::exception& except) {
-        setErrorMessage(except.what());
+        setErrorInfo(except.what());
         return 0;
     }
 }
@@ -163,8 +179,10 @@ jint JNICALL Java_xpnp_XpNamedPipe_readPipe(JNIEnv* pEnv, jclass cls, jlong pipe
 
         bytesRead = XPNP_readPipe((XPNP_PipeHandle)pipeHandle, (char*)readBuffer, pEnv->GetArrayLength(readBufferJava), timeoutMsecs);
         checkXpnpResult(bytesRead);
+    } catch (ErrorInfo& info) {
+        setErrorInfo(info);
     } catch (std::exception& except) { 
-        setErrorMessage(except.what());
+        setErrorInfo(except.what());
     }
     if (readBuffer != NULL) {
         pEnv->ReleaseByteArrayElements(readBufferJava, readBuffer, 0);
@@ -187,8 +205,10 @@ jboolean JNICALL Java_xpnp_XpNamedPipe_readBytes(JNIEnv* pEnv, jclass cls, jlong
 
         result = XPNP_readBytes((XPNP_PipeHandle)pipeHandle, (char*)readBuffer, bytesToRead, timeoutMsecs);
         checkXpnpResult(result);
+    } catch (ErrorInfo& info) {
+        setErrorInfo(info);
     } catch (std::exception& except) { 
-        setErrorMessage(except.what());
+        setErrorInfo(except.what());
     }
     if (readBuffer != NULL) {
         pEnv->ReleaseByteArrayElements(readBufferJava, readBuffer, 0);
@@ -205,7 +225,7 @@ jlong JNICALL Java_xpnp_XpNamedPipe_openPipe(JNIEnv* pEnv, jclass cls, jstring j
             throwXpnpError();
         }
     } catch (std::exception& except) {
-        setErrorMessage(except.what());
+        setErrorInfo(except.what());
     }
 
     return (jlong)(unsigned __int64)newPipe;
@@ -222,7 +242,7 @@ jboolean JNICALL Java_xpnp_XpNamedPipe_writePipe(JNIEnv* pEnv, jclass cls, jlong
         result = XPNP_writePipe((XPNP_PipeHandle)pipe, (char*)pipeData, pEnv->GetArrayLength(pipeDataJava));
         checkXpnpResult(result);
     } catch (std::exception& except) {
-        setErrorMessage(except.what());
+        setErrorInfo(except.what());
     }
     if (pipeData != NULL) {
         pEnv->ReleaseByteArrayElements(pipeDataJava, pipeData, 0);

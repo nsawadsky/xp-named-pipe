@@ -4,10 +4,15 @@
 extern "C" {
 #endif
 
+const int XPNP_ERROR_TIMEOUT = 1;
+
 struct XPNP_Pipe {};
+
 typedef XPNP_Pipe* XPNP_PipeHandle;
 
 void XPNP_getErrorMessage(char* buffer, int bufLen);
+
+int XPNP_getErrorCode();
 
 int XPNP_makePipeName(const char* baseName, int userLocal, char* pipeNameBuf, int bufLen);
  

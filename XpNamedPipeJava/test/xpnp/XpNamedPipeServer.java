@@ -24,8 +24,8 @@ public class XpNamedPipeServer implements Runnable {
                 XpNamedPipe newConn = null;
                 try {
                     newConn = listeningPipe.acceptConnection(1000);
-                } catch (IOException e) {
-                    System.out.println("Caught IOException: " + e);
+                } catch (TimeoutException e) {
+                    System.out.println("Caught TimeoutException: " + e);
                 }
                 
                 System.out.println("Listening indefinitely");
@@ -36,8 +36,8 @@ public class XpNamedPipeServer implements Runnable {
                 System.out.println("Waiting for 1 second for message");
                 try {
                     newConn.readMessage(1000);
-                } catch (IOException e) {
-                    System.out.println("Caught IOException: " + e);
+                } catch (TimeoutException e) {
+                    System.out.println("Caught TimeoutException: " + e);
                 }
                 System.out.println("Waiting indefinitely for message");
                 byte[] buffer = newConn.readMessage();
