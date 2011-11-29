@@ -6,9 +6,11 @@ using namespace util;
 
 const int PIPE_BUF_SIZE = 10 * 1024;
 
-static boost::thread_specific_ptr<std::string> GBL_errorMessage;
+// Globals
+static boost::thread_specific_ptr<ErrorInfo> GBL_errorInfo;
 
 // Type definitions
+
 class PipeInfo {
 public:
     PipeInfo(const std::string& pipeName, bool privatePipe, HANDLE pipeHandle) : 
@@ -47,8 +49,12 @@ private:
 
 // Local function definitions
 
-static void setErrorMessage(const std::string& errorMessage) {
-    GBL_errorMessage.reset(new std::string(errorMessage));
+static void setErrorInfo(const std::string& errorMessage, int errorCode = 0) {
+    GBL_errorInfo.reset(new ErrorInfo(errorMessage, errorCode));
+}
+
+static void setErrorInfo(const ErrorInfo& info) {
+    GBL_errorInfo.reset(new ErrorInfo(info));
 }
 
 static std::string getUserSid() {
@@ -210,7 +216,7 @@ static int readPipe(PipeInfo* pipeInfo, char* buffer, int bufLen, int timeoutMse
             } else if (waitResult == WAIT_OBJECT_0) {
                 throw std::runtime_error("Interrupted while reading message");
             } else {
-                throw std::runtime_error("Timed out while reading message");
+                throw ErrorInfo("Timed out while reading message", XPNP_ERROR_TIMEOUT);
             }
         }
     }
@@ -254,14 +260,23 @@ static PipeInfo* getPipeInfo(XPNP_PipeHandle handle) {
 // Exported function definitions
 
 void XPNP_getErrorMessage(char* buffer, int bufLen) {
-    std::string* pErrorMsg = GBL_errorMessage.get();
+    ErrorInfo* pErrorInfo = GBL_errorInfo.get();
     const char* errorMsg = "";
-    if (pErrorMsg != NULL) {
-        errorMsg = pErrorMsg->c_str();
+    if (pErrorInfo != NULL) {
+        errorMsg = pErrorInfo->what();
     }
     if (strcpy_s(buffer, bufLen, errorMsg) != 0) {
         strcpy_s(buffer, bufLen, "Buffer too small");
     }
+}
+
+int XPNP_getErrorCode() {
+    ErrorInfo* pErrorInfo = GBL_errorInfo.get();
+    int errorCode = 0;
+    if (pErrorInfo != NULL) {
+        errorCode = pErrorInfo->getErrorCode();
+    }
+    return errorCode;
 }
 
 int XPNP_makePipeName(const char* baseName, int userLocal, char* pipeNameBuf, int bufLen) {
@@ -272,7 +287,7 @@ int XPNP_makePipeName(const char* baseName, int userLocal, char* pipeNameBuf, in
         }
         return 1;
     } catch (std::exception& e) {
-        setErrorMessage(e.what());
+        setErrorInfo(e.what());
         return 0;
     }
 }
@@ -283,7 +298,7 @@ XPNP_PipeHandle XPNP_createPipe(const char* pipeName, int privatePipe) {
         pipeHandle = createPipe(pipeName, privatePipe != 0);
         return (XPNP_PipeHandle)new PipeInfo(pipeName, privatePipe != 0, pipeHandle);
     } catch (std::exception& e) {
-        setErrorMessage(e.what());
+        setErrorInfo(e.what());
         if (pipeHandle != INVALID_HANDLE_VALUE) {
             CloseHandle(pipeHandle);
         }
@@ -297,7 +312,7 @@ int XPNP_stopPipe(XPNP_PipeHandle pipe) {
         pipeInfo->stop();
         return 1;
     } catch (std::exception& e) {
-        setErrorMessage(e.what());
+        setErrorInfo(e.what());
         return 0;
     }
 }
@@ -308,7 +323,7 @@ int XPNP_closePipe(XPNP_PipeHandle pipe) {
         delete pipeInfo;
         return 1;
     } catch (std::exception& e) {
-        setErrorMessage(e.what());
+        setErrorInfo(e.what());
         return 0;
     }
 }
@@ -318,6 +333,7 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe, int timeoutMsecs) {
     PipeInfo* pipeInfo = NULL;
     PipeInfo* newPipeInfo = NULL;    
     bool connectAttempted = false;
+    bool errorOccurred = false;
 
     try {
         pipeInfo = getPipeInfo(pipe);
@@ -344,7 +360,7 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe, int timeoutMsecs) {
                 } else if (waitResult == WAIT_OBJECT_0) {
                     throw std::runtime_error("Interrupted while waiting for client to connect");
                 } else {
-                    throw std::runtime_error("Timed out waiting for client to connect");
+                    throw ErrorInfo("Timed out waiting for client to connect", XPNP_ERROR_TIMEOUT);
                 }
             }
             result = GetOverlappedResult(pipeInfo->getPipeHandle(), &overlapped, &unused, TRUE);
@@ -365,8 +381,14 @@ XPNP_PipeHandle XPNP_acceptConnection(XPNP_PipeHandle pipe, int timeoutMsecs) {
         }
 
         newPipeInfo = new PipeInfo(newPipeName, pipeInfo->isPrivatePipe(), newPipeHandle);
+    } catch (ErrorInfo& info) {
+        setErrorInfo(info);
+        errorOccurred = true;
     } catch (std::exception& e) {
-        setErrorMessage(e.what());
+        setErrorInfo(e.what());
+        errorOccurred = true;
+    }
+    if (errorOccurred) {
         if (newPipeHandle != INVALID_HANDLE_VALUE) {
             CloseHandle(newPipeHandle);
         }
@@ -384,8 +406,11 @@ int XPNP_readPipe(XPNP_PipeHandle pipe, char* buffer, int bufLen, int timeoutMse
         }
         PipeInfo* pipeInfo = getPipeInfo(pipe);
         return readPipe(pipeInfo, buffer, bufLen, timeoutMsecs);
+    } catch (ErrorInfo& e) {
+        setErrorInfo(e);
+        return 0;
     } catch (std::exception& e) { 
-        setErrorMessage(e.what());
+        setErrorInfo(e.what());
         return 0;
     }
 }
@@ -398,8 +423,11 @@ int XPNP_readBytes(XPNP_PipeHandle pipe, char* buffer, int bytesToRead, int time
         PipeInfo* pipeInfo = getPipeInfo(pipe);
         readBytes(pipeInfo, buffer, bytesToRead, timeoutMsecs);
         return 1;
+    } catch (ErrorInfo& e) {
+        setErrorInfo(e);
+        return 0;
     } catch (std::exception& e) {
-        setErrorMessage(e.what());
+        setErrorInfo(e.what());
         return 0;
     }
 }
@@ -462,7 +490,7 @@ XPNP_PipeHandle XPNP_openPipe(const char* pipeName, int privatePipe) {
 
         pipeInfo = new PipeInfo(newPipeName, privatePipe != 0, newPipeHandle);
     } catch (std::exception& e) {
-        setErrorMessage(e.what());
+        setErrorInfo(e.what());
         if (newPipeHandle != INVALID_HANDLE_VALUE) {
             CloseHandle(newPipeHandle);
         }
@@ -479,7 +507,7 @@ int XPNP_writePipe(XPNP_PipeHandle pipe, const char* data, int bytesToWrite) {
         writeBytes(pipeInfo->getPipeHandle(), data, bytesToWrite);
         return 1;
     } catch (std::exception& e) {
-        setErrorMessage(e.what());
+        setErrorInfo(e.what());
         return 0;
     }
 }
