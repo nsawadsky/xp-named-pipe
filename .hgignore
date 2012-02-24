@@ -1,0 +1,15 @@
+
+syntax: regexp
+/bin$
+
+/Debug$
+
+/Release$
+
+syntax: glob
+*~
+*.ipch
+*.vcxproj.user
+*.sdf
+*.suo
+*.opensdf
