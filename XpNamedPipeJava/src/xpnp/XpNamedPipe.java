@@ -40,6 +40,12 @@ public class XpNamedPipe {
         return new XpNamedPipe(pipeHandle);
     }
     
+    public static void startProcess(String commandLine, String workingDirectory) throws IOException {
+        if (!createProcess(commandLine, workingDirectory)) {
+            throw new IOException("Failed to start process: " + getErrorMessage());
+        }
+    }
+    
     public void stop() throws IOException {
         if (!stopPipe(namedPipeHandle)) {
             throw new IOException("Failed to stop pipe: " + getErrorMessage());
@@ -151,5 +157,7 @@ public class XpNamedPipe {
     private static native long openPipe(String fullName, boolean privatePipe);
 
     private static native boolean writePipe(long pipeHandle, byte[] pipeMsg);
+    
+    private static native boolean createProcess(String commandLine, String workingDirectory);
     
 }

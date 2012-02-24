@@ -11,3 +11,4 @@ EXPORTS
   Java_xpnp_XpNamedPipe_readBytes @9
   Java_xpnp_XpNamedPipe_stopPipe @10
   Java_xpnp_XpNamedPipe_getErrorCode @11
+  Java_xpnp_XpNamedPipe_createProcess @12

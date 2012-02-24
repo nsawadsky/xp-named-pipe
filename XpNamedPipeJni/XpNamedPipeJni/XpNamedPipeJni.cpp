@@ -250,6 +250,35 @@ jboolean JNICALL Java_xpnp_XpNamedPipe_writePipe(JNIEnv* pEnv, jclass cls, jlong
     return result;
 }
 
+jboolean JNICALL Java_xpnp_XpNamedPipe_createProcess(JNIEnv* pEnv, jclass cls, jstring commandLineJava, jstring workingDirectoryJava) {
+    jboolean result = 0;
+    wchar_t* commandLineBuffer = NULL;
+    try {
+        std::string commandLine = toStdString(pEnv, commandLineJava);
+        std::string workingDirectory = toStdString(pEnv, workingDirectoryJava);
 
+        commandLineBuffer = newUtf16(commandLine.c_str());
 
+        STARTUPINFO startupInfo;
+        memset(&startupInfo, 0, sizeof(startupInfo));
+        startupInfo.cb = sizeof(startupInfo);
+
+        PROCESS_INFORMATION processInfo;
+        memset(&processInfo, 0, sizeof(processInfo));
+
+        if (!CreateProcess(NULL, commandLineBuffer, NULL, NULL, FALSE, 0, NULL, 
+                util::toUtf16(workingDirectory).c_str(), &startupInfo, &processInfo)) {
+            util::throwWindowsError("CreateProcess");
+        }
+        CloseHandle(processInfo.hThread);
+        CloseHandle(processInfo.hProcess);
+        result = 1;
+    } catch (std::exception& except) {
+        setErrorInfo(except.what());
+    }
+    if (commandLineBuffer != NULL) {
+        delete [] commandLineBuffer;
+    }
+    return result;
+}
 

@@ -25,6 +25,8 @@ jlong JNICALL Java_xpnp_XpNamedPipe_openPipe(JNIEnv* pEnv, jclass cls, jstring p
 
 jboolean JNICALL Java_xpnp_XpNamedPipe_writePipe(JNIEnv* pEnv, jclass cls, jlong pipeHandle, jbyteArray pipeDataJava);
 
+jboolean JNICALL Java_xpnp_XpNamedPipe_createProcess(JNIEnv* pEnv, jclass cls, jstring commandLineJava, jstring workingDirectoryJava);
+
 #ifdef __cplusplus
 }
 #endif
