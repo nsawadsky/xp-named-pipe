@@ -4,6 +4,8 @@
 #include "util.hpp"
 using namespace util;
 
+// Impl based on http://msdn.microsoft.com/en-us/library/windows/desktop/aa365603(v=vs.85).aspx
+
 const int PIPE_BUF_SIZE = 10 * 1024;
 
 // Globals
@@ -180,9 +182,9 @@ static void writeBytes(HANDLE pipeHandle, const char* pipeMsg, int bytesToWrite)
     ScopedHandle evt = overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     evt.check("CreateEvent");
 
-    BOOL writeResult = WriteFile(pipeHandle, pipeMsg, bytesToWrite, NULL, &overlapped);
+    DWORD bytesWritten = 0;
+    BOOL writeResult = WriteFile(pipeHandle, pipeMsg, bytesToWrite, &bytesWritten, &overlapped);
     if (!writeResult && GetLastError() == ERROR_IO_PENDING){
-        DWORD bytesWritten = 0;
         writeResult = GetOverlappedResult(pipeHandle, &overlapped, &bytesWritten, TRUE);
     }
 
@@ -196,7 +198,8 @@ static int readPipe(PipeInfo* pipeInfo, char* buffer, int bufLen, int timeoutMse
     ScopedHandle evt = overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     evt.check("CreateEvent");
 
-    BOOL result = ReadFile(pipeInfo->getPipeHandle(), buffer, bufLen, NULL, &overlapped);
+    int bytesRead = 0;
+    BOOL result = ReadFile(pipeInfo->getPipeHandle(), buffer, bufLen, (LPDWORD)&bytesRead, &overlapped);
     DWORD errorCode = GetLastError();
     if (!result && errorCode != ERROR_IO_PENDING) {
         throwWindowsError("ReadFile");
@@ -219,10 +222,9 @@ static int readPipe(PipeInfo* pipeInfo, char* buffer, int bufLen, int timeoutMse
                 throw ErrorInfo("Timed out while reading message", XPNP_ERROR_TIMEOUT);
             }
         }
+        result = GetOverlappedResult(pipeInfo->getPipeHandle(), &overlapped, (LPDWORD)&bytesRead, TRUE);
+        checkWindowsResult(result, "GetOverlappedResult");
     }
-    int bytesRead = 0;
-    result = GetOverlappedResult(pipeInfo->getPipeHandle(), &overlapped, (LPDWORD)&bytesRead, TRUE);
-    checkWindowsResult(result, "GetOverlappedResult");
     return bytesRead;
 }
 
