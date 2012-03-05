@@ -1,0 +1,1 @@
+java -cp bin -Djava.library.path=C:\xpnamedpipe\xpnamedpipe\release xpnp.TestXpnpSecurity
