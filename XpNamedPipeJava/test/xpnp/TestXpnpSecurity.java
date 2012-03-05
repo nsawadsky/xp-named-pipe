@@ -4,9 +4,6 @@ import java.io.IOException;
 
 public class TestXpnpSecurity {
 
-    /**
-     * @param args
-     */
     public static void main(String[] args) {
         XpNamedPipe pipe = null;
         try {
